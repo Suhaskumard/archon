@@ -290,9 +290,104 @@ class Dependency(Base, TimestampMixin):
     dst: Mapped[Component | None] = relationship(foreign_keys=[dst_component_id])
 
 
+class Commit(Base, TimestampMixin):
+    """One git commit reachable from a snapshot's HEAD (spec section 24)."""
+
+    __tablename__ = "commits"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "sha", name="uq_commit_snapshot_sha"),
+        Index("ix_commit_snapshot_authored", "snapshot_id", "authored_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cmt"))
+    repository_id: Mapped[str] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    author_name: Mapped[str | None] = mapped_column(String(255))
+    author_email: Mapped[str | None] = mapped_column(String(320))
+    authored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    message: Mapped[str | None] = mapped_column(Text)
+    files_changed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    insertions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    deletions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_merge: Mapped[bool] = mapped_column(default=False, nullable=False)
+    parents: Mapped[list | None] = mapped_column(JSON)
+    changed_paths: Mapped[list | None] = mapped_column(JSON)
+
+
+class Assumption(Base, TimestampMixin):
+    """A hidden assumption detected in the source (spec section 26)."""
+
+    __tablename__ = "assumptions"
+    __table_args__ = (Index("ix_assumption_run_kind", "run_id", "kind"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("asm"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str | None] = mapped_column(
+        ForeignKey("components.id", ondelete="SET NULL"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(48), nullable=False)
+    description: Mapped[str] = mapped_column(String(1024), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(1024))  # path:line
+    detail: Mapped[str | None] = mapped_column(Text)
+    risk: Mapped[str | None] = mapped_column(String(16))
+    confidence: Mapped[str | None] = mapped_column(String(16))
+    suggested_test: Mapped[str | None] = mapped_column(Text)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    evidence_ids: Mapped[list | None] = mapped_column(JSON)
+
+
+class BehaviorReconstruction(Base, TimestampMixin):
+    """Reconstructed behaviour + historical intent for one component (spec sections 24-25)."""
+
+    __tablename__ = "behavior_reconstructions"
+    __table_args__ = (
+        UniqueConstraint("run_id", "component_id", name="uq_behavior_run_component"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("bhv"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    purpose: Mapped[str | None] = mapped_column(Text)
+    historical_context: Mapped[str | None] = mapped_column(Text)
+    current_role: Mapped[str | None] = mapped_column(Text)
+    inputs: Mapped[list | None] = mapped_column(JSON)
+    outputs: Mapped[list | None] = mapped_column(JSON)
+    side_effects: Mapped[list | None] = mapped_column(JSON)
+    exceptions: Mapped[list | None] = mapped_column(JSON)
+    callers: Mapped[list | None] = mapped_column(JSON)
+    callees: Mapped[list | None] = mapped_column(JSON)
+    tests: Mapped[list | None] = mapped_column(JSON)
+    likely_invariants: Mapped[list | None] = mapped_column(JSON)
+    git: Mapped[dict | None] = mapped_column(JSON)
+    classification: Mapped[str | None] = mapped_column(String(24))
+    confidence: Mapped[str | None] = mapped_column(String(16))
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
+    "Assumption",
+    "BehaviorReconstruction",
+    "Commit",
     "Component",
     "Dependency",
     "Evidence",

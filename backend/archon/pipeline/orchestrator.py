@@ -9,8 +9,10 @@ Implemented stages:
     INGESTING                  validate + fetch metadata + secure clone into a fresh workspace
     SNAPSHOTTING               classify support, persist an immutable RepositorySnapshot
     ANALYZING_SOURCE           Python AST extraction -> components + dependencies (Phase 2)
+    ANALYZING_GIT              commits, churn/age, CHANGED_WITH / CHANGED_BY edges (Phase 4)
     BUILDING_GRAPH             derive module DEPENDS_ON / TESTED_BY edges + cycle detection (Phase 3)
     RECONSTRUCTING_ARCHITECTURE  role inference + coupling metrics + graph artifact (Phase 3)
+    ARCHAEOLOGIZING            behaviour reconstruction + hidden assumptions + first AI step (Phase 4)
 """
 
 from __future__ import annotations
@@ -21,7 +23,9 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from archon.analysis.archaeology.reconstruct import run_archaeology
 from archon.analysis.architecture.reconstruct import reconstruct_architecture
+from archon.analysis.git.persist import analyze_git
 from archon.analysis.graph.derive import derive_edges
 from archon.analysis.source.persist import analyze_source
 from archon.config import get_settings
@@ -41,8 +45,10 @@ _ANALYSIS_STAGES = (
     Stage.INGESTING,
     Stage.SNAPSHOTTING,
     Stage.ANALYZING_SOURCE,
+    Stage.ANALYZING_GIT,
     Stage.BUILDING_GRAPH,
     Stage.RECONSTRUCTING_ARCHITECTURE,
+    Stage.ARCHAEOLOGIZING,
 )
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
@@ -64,6 +70,8 @@ class PipelineResult:
     stages_completed: list[str]
     source: dict | None = None
     architecture: dict | None = None
+    git: dict | None = None
+    archaeology: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -94,6 +102,8 @@ class PipelineOrchestrator:
         snapshot: RepositorySnapshot | None = None
         source_summary: dict | None = None
         architecture_summary: dict | None = None
+        git_summary: dict | None = None
+        archaeology_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -110,12 +120,20 @@ class PipelineOrchestrator:
             elif stage is Stage.ANALYZING_SOURCE:
                 assert clone_result is not None and snapshot is not None
                 source_summary = self._source(session, run, snapshot, clone_result.workspace)
+            elif stage is Stage.ANALYZING_GIT:
+                assert clone_result is not None and snapshot is not None
+                git_summary = self._git(session, run, snapshot, clone_result.workspace)
             elif stage is Stage.BUILDING_GRAPH:
                 assert snapshot is not None
                 self._graph(session, run, snapshot)
             elif stage is Stage.RECONSTRUCTING_ARCHITECTURE:
                 assert snapshot is not None
                 architecture_summary = self._architecture(session, run, snapshot)
+            elif stage is Stage.ARCHAEOLOGIZING:
+                assert clone_result is not None and snapshot is not None
+                archaeology_summary = self._archaeology(
+                    session, run, snapshot, clone_result.workspace
+                )
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -138,6 +156,8 @@ class PipelineOrchestrator:
             stages_completed=completed,
             source=source_summary,
             architecture=architecture_summary,
+            git=git_summary,
+            archaeology=archaeology_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -272,6 +292,23 @@ class PipelineOrchestrator:
         summary = reconstruct_architecture(session, run, snapshot)
         log.info(
             "architecture stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _git(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = analyze_git(session, run, snapshot, workspace.resolve_within("repo"))
+        log.info("git stage complete", extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}})
+        return summary.as_dict()
+
+    def _archaeology(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = run_archaeology(session, run, snapshot, workspace.resolve_within("repo"))
+        log.info(
+            "archaeology stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
         return summary.as_dict()

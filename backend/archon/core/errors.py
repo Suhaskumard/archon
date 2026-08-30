@@ -43,6 +43,9 @@ class ErrorCode(str, enum.Enum):
     ILLEGAL_STATE_TRANSITION = "ILLEGAL_STATE_TRANSITION"
     JOB_CANCELLED = "JOB_CANCELLED"
     TIMEOUT = "TIMEOUT"
+    # AI (spec sections 13-14, 61)
+    AI_PROVIDER_ERROR = "AI_PROVIDER_ERROR"
+    AI_OUTPUT_INVALID = "AI_OUTPUT_INVALID"
 
 
 _HTTP_STATUS: dict[ErrorCode, int] = {
@@ -67,6 +70,8 @@ _HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.ILLEGAL_STATE_TRANSITION: 500,
     ErrorCode.JOB_CANCELLED: 409,
     ErrorCode.TIMEOUT: 504,
+    ErrorCode.AI_PROVIDER_ERROR: 502,
+    ErrorCode.AI_OUTPUT_INVALID: 500,
 }
 
 

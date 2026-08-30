@@ -7,6 +7,15 @@ import pytest
 _FIXTURES = Path(__file__).parent / "fixtures"
 
 
+def terminal_stage(mode: str = "FULL"):
+    """The last stage the pipeline executes for ``mode`` - use instead of pinning a
+    literal stage so adding a later phase does not ripple through every test."""
+    from archon.domain.enums import RunMode
+    from archon.pipeline.orchestrator import _STAGE_PLANS
+
+    return _STAGE_PLANS[RunMode(mode)][-1]
+
+
 @pytest.fixture(autouse=True)
 def _isolated_env(tmp_path, monkeypatch):
     """Point every test at a throwaway SQLite DB + data root, and migrate it."""

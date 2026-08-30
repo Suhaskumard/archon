@@ -91,8 +91,15 @@ _FILES_V3 = {
 }
 
 
-def _git(args: list[str], cwd: Path) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+def _git(args: list[str], cwd: Path, when: str | None = None) -> None:
+    env = None
+    if when is not None:
+        import os
+
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+    subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env=env
+    )
 
 
 def _write(root: Path, files: dict[str, str]) -> None:
@@ -110,17 +117,21 @@ def build_test_repo(dest: Path) -> Path:
     _git(["config", "user.name", "ARCHON Fixture"], dest)
     _git(["config", "commit.gpgsign", "false"], dest)
 
+    # Commits are backdated so churn / age / co-change carry real signal.
     _write(dest, _FILES_V1)
     _git(["add", "-A"], dest)
-    _git(["commit", "-m", "Initial commit: calculator + billing + one test"], dest)
+    _git(["commit", "-m", "Initial commit: calculator + billing + one test"], dest,
+         when="2026-06-01T12:00:00")
 
     _write(dest, _FILES_V2)
     _git(["add", "-A"], dest)
-    _git(["commit", "-m", "Add inventory module and billing test"], dest)
+    _git(["commit", "-m", "Add inventory + orders modules and billing test"], dest,
+         when="2026-07-01T12:00:00")
 
     _write(dest, _FILES_V3)
     _git(["add", "-A"], dest)
-    _git(["commit", "-m", "Guard unit_price against qty == 0"], dest)
+    _git(["commit", "-m", "Guard unit_price against qty == 0"], dest,
+         when="2026-08-01T12:00:00")
 
     return dest
 

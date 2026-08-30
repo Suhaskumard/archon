@@ -29,6 +29,7 @@ from archon.domain.enums import (
 from archon.jobs.manager import JobManager
 from archon.jobs.worker import Worker
 from archon.providers.repo import provider_for
+from tests.conftest import terminal_stage
 
 
 def _run(test_repo) -> str:
@@ -54,7 +55,7 @@ def test_exact_source_inventory_for_fixture(test_repo):
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
         # ANALYSIS_ONLY now continues past source into the Phase 3 architecture stages
-        assert run.last_completed_stage is Stage.RECONSTRUCTING_ARCHITECTURE
+        assert run.last_completed_stage is terminal_stage("FULL")
         assert any(e.stage is Stage.ANALYZING_SOURCE for e in run.evidence)
         sid = run.snapshot_id
 

@@ -114,6 +114,52 @@ export interface Architecture {
   artifact_ref: string | null;
 }
 
+export interface Evolution {
+  run_id: string;
+  snapshot_id: string;
+  total_commits: number;
+  analyzed_commits: number;
+  span_days: number;
+  authors: number;
+  truncated: boolean;
+  timeline: Array<{ month: string; commits: number; churn: number }>;
+  top_churn: Array<Record<string, unknown>>;
+  top_co_change: Array<{ a: string; b: string; count: number; confidence: number }>;
+}
+
+export interface Assumption {
+  id: string;
+  kind: string;
+  description: string;
+  location: string | null;
+  risk: "HIGH" | "MEDIUM" | "LOW" | null;
+  confidence: string | null;
+  suggested_test: string | null;
+  component_qn: string | null;
+  produced_by: string;
+  detail: string | null;
+}
+
+export interface Behavior {
+  id: string;
+  component_id: string;
+  component_qn: string | null;
+  purpose: string | null;
+  historical_context: string | null;
+  current_role: string | null;
+  inputs: string[] | null;
+  outputs: string[] | null;
+  side_effects: string[] | null;
+  exceptions: string[] | null;
+  callers: string[] | null;
+  callees: string[] | null;
+  tests: string[] | null;
+  likely_invariants: string[] | null;
+  git: Record<string, unknown> | null;
+  classification: string | null;
+  confidence: string | null;
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -146,4 +192,7 @@ export const api = {
   listComponents: (snapshotId: string, params = "") =>
     req<Component[]>(`/snapshots/${snapshotId}/components?limit=1000${params}`),
   getArchitecture: (runId: string) => req<Architecture>(`/runs/${runId}/architecture`),
+  getEvolution: (runId: string) => req<Evolution>(`/runs/${runId}/evolution`),
+  getAssumptions: (runId: string) => req<Assumption[]>(`/runs/${runId}/assumptions`),
+  getBehavior: (runId: string) => req<Behavior[]>(`/runs/${runId}/behavior`),
 };

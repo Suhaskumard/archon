@@ -2,12 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type Architecture,
+  type Assumption,
+  type Behavior,
   type Component,
+  type Evolution,
   type ModuleArch,
   type Repository,
   type Run,
   type SourceSummary,
 } from "./api";
+
+const RISK_COLOR: Record<string, string> = {
+  HIGH: "#ff9d9d",
+  MEDIUM: "#ffd479",
+  LOW: "#9aa4b2",
+};
 
 const ROLE_COLOR: Record<string, string> = {
   api: "#5b9dff",
@@ -379,6 +388,178 @@ function ArchitecturePanel({ runId }: { runId: string }) {
   );
 }
 
+function GitEvolutionPanel({ runId }: { runId: string }) {
+  const [evo, setEvo] = useState<Evolution | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getEvolution(runId).then((e) => live && setEvo(e)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!evo) return null;
+  const maxC = Math.max(1, ...evo.timeline.map((t) => t.commits));
+  return (
+    <>
+      <h2>Git Evolution</h2>
+      <div className="card">
+        <div className="meta">
+          {evo.analyzed_commits} commit(s) over {evo.span_days} day(s) · {evo.authors} author(s)
+          {evo.truncated && " · history truncated"}
+        </div>
+        <svg viewBox={`0 0 ${Math.max(evo.timeline.length * 26, 40)} 60`} height={60} style={{ marginTop: 6 }}>
+          {evo.timeline.map((t, i) => (
+            <g key={t.month}>
+              <rect
+                x={i * 26 + 4}
+                y={54 - (t.commits / maxC) * 44}
+                width={16}
+                height={(t.commits / maxC) * 44}
+                fill="#5b9dff"
+              />
+              <text x={i * 26 + 12} y={60} textAnchor="middle" fontSize="7" fill="#9aa4b2">
+                {t.month.slice(2)}
+              </text>
+            </g>
+          ))}
+        </svg>
+        <table style={{ marginTop: 8 }}>
+          <thead>
+            <tr>
+              <th>Most-changed module</th>
+              <th>Churn</th>
+              <th>Commits</th>
+              <th>Age (d)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {evo.top_churn.slice(0, 6).map((m, i) => (
+              <tr key={i}>
+                <td>{String(m.qualified_name ?? m.path)}</td>
+                <td>{String(m.churn ?? "")}</td>
+                <td className="meta">{String(m.commit_count ?? "")}</td>
+                <td className="meta">{String(m.age_days ?? "")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {evo.top_co_change.length > 0 && (
+          <div className="meta" style={{ marginTop: 6 }}>
+            co-change:{" "}
+            {evo.top_co_change
+              .slice(0, 5)
+              .map((c) => `${c.a?.split(".").pop()} ↔ ${c.b?.split(".").pop()} (${c.count})`)
+              .join(", ")}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function AssumptionsPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Assumption[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getAssumptions(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Hidden Assumptions</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Risk</th>
+              <th>Kind</th>
+              <th>Assumption</th>
+              <th>Location</th>
+              <th>Suggested test</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  <span
+                    className="pill"
+                    style={{ borderColor: RISK_COLOR[a.risk ?? "LOW"], color: RISK_COLOR[a.risk ?? "LOW"] }}
+                  >
+                    {a.risk}
+                  </span>
+                </td>
+                <td className="meta">{a.kind}</td>
+                <td>{a.description}</td>
+                <td className="meta">{a.location}</td>
+                <td className="meta">{a.suggested_test}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function ArchaeologyPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Behavior[] | null>(null);
+  const [sel, setSel] = useState<string>("");
+  useEffect(() => {
+    let live = true;
+    api.getBehavior(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  const current = rows.find((r) => r.component_qn === sel) ?? rows[0];
+  return (
+    <>
+      <h2>Software Archaeology — Why Does This Exist?</h2>
+      <div className="card">
+        <select value={current.component_qn ?? ""} onChange={(e) => setSel(e.target.value)}>
+          {rows.map((r) => (
+            <option key={r.id} value={r.component_qn ?? ""}>
+              {r.component_qn}
+            </option>
+          ))}
+        </select>
+        <div style={{ marginTop: 8 }}>
+          <div>
+            <b>Purpose:</b> {current.purpose}{" "}
+            <span className={`pill ${current.classification ?? ""}`}>{current.classification}</span>{" "}
+            <span className="meta">confidence {current.confidence}</span>
+          </div>
+          <div className="meta">Historical context: {current.historical_context}</div>
+          <div className="meta">Current role: {current.current_role}</div>
+          {current.exceptions && current.exceptions.length > 0 && (
+            <div className="meta">Raises: {current.exceptions.join(", ")}</div>
+          )}
+          {current.callees && current.callees.length > 0 && (
+            <div className="meta">Calls: {current.callees.join(", ")}</div>
+          )}
+          {current.tests && current.tests.length > 0 ? (
+            <div className="meta">Tested by: {current.tests.join(", ")}</div>
+          ) : (
+            <div className="meta err">No tests reference this — characterize before changing.</div>
+          )}
+          {current.likely_invariants && current.likely_invariants.length > 0 && (
+            <ul className="meta">
+              {current.likely_invariants.map((inv, i) => (
+                <li key={i}>{inv}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -456,7 +637,10 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
           {run.state === "COMPLETED" && run.snapshot_id && (
             <>
               <SourceIntel runId={run.id} snapshotId={run.snapshot_id} />
+              <GitEvolutionPanel runId={run.id} />
               <ArchitecturePanel runId={run.id} />
+              <ArchaeologyPanel runId={run.id} />
+              <AssumptionsPanel runId={run.id} />
             </>
           )}
 

@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     job_heartbeat_timeout_seconds: int = 120
     max_concurrent_runs: int = 4
 
+    # --- AI (spec sections 13-14, 18) ---
+    ai_provider: str = "mock"          # "mock" | "claude" (claude is a stub until wired)
+    ai_max_context_chars: int = 12_000
+    ai_max_components_per_run: int = 40  # archaeology: top-K by churn * complexity
+
     limits: RepositoryLimits = Field(default_factory=RepositoryLimits)
 
     @property

@@ -155,3 +155,78 @@ class ArchitectureOut(BaseModel):
     layering_violations: list[dict]
     top_hubs: list[dict]
     artifact_ref: str | None = None
+
+
+# --- Phase 4: software archaeology -----------------------------------------------
+
+
+class CommitOut(BaseModel):
+    id: str
+    sha: str
+    author_name: str | None
+    author_email: str | None
+    authored_at: datetime | None
+    message: str | None
+    files_changed: int
+    insertions: int
+    deletions: int
+    is_merge: bool
+    changed_paths: list[str] | None
+
+
+class EvolutionOut(BaseModel):
+    run_id: str
+    snapshot_id: str
+    total_commits: int
+    analyzed_commits: int
+    span_days: int
+    authors: int
+    truncated: bool
+    timeline: list[dict]          # [{month: "2026-06", commits: n, churn: n}]
+    top_churn: list[dict]         # [{path, churn, commits}]
+    top_co_change: list[dict]     # [{a, b, count, confidence}]
+
+
+class AssumptionOut(BaseModel):
+    id: str
+    kind: str
+    description: str
+    location: str | None
+    risk: str | None
+    confidence: str | None
+    suggested_test: str | None
+    component_id: str | None
+    component_qn: str | None = None
+    produced_by: str
+    detail: str | None
+    created_at: datetime
+
+
+class BehaviorOut(BaseModel):
+    id: str
+    component_id: str
+    component_qn: str | None = None
+    purpose: str | None
+    historical_context: str | None
+    current_role: str | None
+    inputs: list[str] | None
+    outputs: list[str] | None
+    side_effects: list[str] | None
+    exceptions: list[str] | None
+    callers: list[str] | None
+    callees: list[str] | None
+    tests: list[str] | None
+    likely_invariants: list[str] | None
+    git: dict | None
+    classification: str | None
+    confidence: str | None
+    produced_by: str
+
+
+class ComponentHistoryOut(BaseModel):
+    component_id: str
+    qualified_name: str
+    path: str
+    git: dict
+    commits: list[CommitOut]
+    co_changed_with: list[dict]   # [{qualified_name, count, confidence}]

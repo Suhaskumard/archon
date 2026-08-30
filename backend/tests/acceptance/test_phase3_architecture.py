@@ -31,6 +31,7 @@ from archon.domain.enums import (
 from archon.jobs.manager import JobManager
 from archon.jobs.worker import Worker
 from archon.providers.repo import provider_for
+from tests.conftest import terminal_stage
 
 
 def _run(test_repo) -> str:
@@ -66,7 +67,7 @@ def test_exact_architecture_for_fixture(test_repo):
         run = s.get(AnalysisRun, rid)
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
-        assert run.last_completed_stage is Stage.RECONSTRUCTING_ARCHITECTURE
+        assert run.last_completed_stage is terminal_stage("FULL")
         sid = run.snapshot_id
 
         roles = {

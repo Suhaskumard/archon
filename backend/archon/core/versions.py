@@ -20,6 +20,14 @@ ENGINE_VERSIONS: dict[str, str] = {
     "roles": "roles.v1",
     "arch_metrics": "arch_metrics.v1",
     "architecture": "architecture.v1",
+    # Phase 4 - software archaeology
+    "git": "git.v1",
+    "behavior": "behavior.v1",
+    "assumptions": "assumptions.v1",
+    "archaeology": "archaeology.v1",
+    "ai_historical_intent": "historical_intent.v1",
+    "ai_behavior_analysis": "behavior_analysis.v1",
+    "ai_assumption_analysis": "assumption_analysis.v1",
 }
 
 
@@ -31,4 +39,6 @@ def register(name: str, version: str) -> None:
 
 
 def current_versions() -> dict[str, str]:
-    return dict(ENGINE_VERSIONS)
+    from archon.config import get_settings
+
+    return {**ENGINE_VERSIONS, "ai_provider": get_settings().ai_provider}

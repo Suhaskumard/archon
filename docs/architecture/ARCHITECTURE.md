@@ -40,12 +40,15 @@ contracts later phases must honour. It is the source of truth the spec demands (
 |---|---|
 | `config` | All tunables (env-overridable). `Settings`, `RepositoryLimits`. |
 | `core` | `ids` (ULID), `errors` (taxonomy), `logging` (structured + secret redaction), `versions` (engine-version registry), `artifacts` (fs artifact store). |
-| `domain` | Enums / value objects: `Classification`, `RunState`, `JobState`, `Stage`, `SupportLevel`, `RunMode`, `ProviderKind`. |
-| `db` | SQLAlchemy models, engine/session, `migrate` (programmatic Alembic). |
+| `domain` | Enums / value objects: `Classification`, `Confidence`, `RunState`, `JobState`, `Stage`, `SupportLevel`, `RunMode`, `ProviderKind`, `DependencyKind`; `ai_schemas` (pydantic AI output contract). |
+| `db` | SQLAlchemy models, engine/session, `migrate` (programmatic Alembic), `types.EnumString`. |
 | `analysis/source` | Phase 2 - `ast`-based extractor: components, dependencies, complexity, entry points, resolution. |
+| `analysis/git` | Phase 4 - `git log` parse, churn/age/co-change, `CHANGED_WITH` / `CHANGED_BY` edges. |
 | `analysis/graph` | Phase 3 - NetworkX component + module graphs; derives `DEPENDS_ON` / `TESTED_BY`; cycle detection. |
 | `analysis/architecture` | Phase 3 - role inference (`roles.v1`) + coupling/centrality metrics + layering check + graph artifact. |
+| `analysis/archaeology` | Phase 4 - deterministic behaviour facts + hidden-assumption heuristics + the first AI step. |
 | `providers/repo` | `RepositoryProvider` ABC, `LocalRepositoryProvider`, `GitHubRepositoryProvider`, `gitcli` safe wrapper. |
+| `providers/ai` | Phase 4 - `AIProvider` ABC + validation pipeline, `MockAIProvider` (deterministic, offline), `get_ai_provider()`. |
 | `workspace` | `WorkspaceManager` — disposable, quota-checked, path-traversal-safe checkout dirs. |
 | `jobs` | `state_machine`, `manager` (DB queue), `worker` (loop). |
 | `pipeline` | `orchestrator` (stage walker), `support` (spec §17 classifier). |
@@ -68,18 +71,21 @@ analysis-output row carries `run_id`; snapshots are immutable once written.
 | `analysis_artifacts` | Pointers to large/generated files (fs/object, not inline). | `run_id`, `kind`, `storage`, `ref`, `sha256`, `size_bytes` |
 | `evidence` | Central conclusion record (§4). | `run_id`, `stage`, `classification`, `summary`, `detail`, `source_path/line`, `confidence`, `produced_by`, `refs` |
 | `jobs` | Background unit of work. | `run_id` (unique), `state`, `priority`, `attempts`/`max_attempts`, `idempotency_key` (unique), `dedupe_key`, `heartbeat_at`, `cancel_requested`, `error` |
-| `components` _(0002, Phase 2)_ | A source entity (file/module/class/function/method). Keyed to the **snapshot** so extraction is reused across runs. | `snapshot_id`, `parent_id` (CONTAINS tree), `kind`, `name`, `qualified_name`, `path`, `start_line`/`end_line`, `metrics` (Phase 3 adds `metrics.architecture`), `attributes`, `is_test`/`is_entrypoint`/`is_config`, `role` (set in Phase 3) |
+| `components` _(0002, Phase 2)_ | A source entity (file/module/class/function/method). Keyed to the **snapshot** so extraction is reused across runs. | `snapshot_id`, `parent_id` (CONTAINS tree), `kind`, `name`, `qualified_name`, `path`, `start_line`/`end_line`, `metrics` (Phase 3 adds `metrics.architecture`; Phase 4 adds `metrics.git`), `attributes`, `is_test`/`is_entrypoint`/`is_config`, `role` (set in Phase 3) |
 | `dependencies` _(0002; 0003 widens `kind`)_ | A directed edge between components / modules. | `snapshot_id`, `src_component_id`, `dst_component_id` (null = unresolved), `kind`, `target_name`, `resolved`, `external`, `source_line`, `attributes` |
+| `commits` _(0004, Phase 4)_ | A git commit reachable from the snapshot's HEAD. Keyed to the **snapshot**. | `repository_id`, `snapshot_id`, `sha` (unique per snapshot), `author_name/email`, `authored_at`, `committed_at`, `message`, `files_changed`, `insertions`, `deletions`, `is_merge`, `parents`, `changed_paths` |
+| `assumptions` _(0004, Phase 4)_ | One detected hidden assumption. | `run_id`, `snapshot_id`, `component_id`, `kind`, `description`, `location` (`path:line`), `risk`, `confidence`, `suggested_test`, `produced_by`, `evidence_ids` |
+| `behavior_reconstructions` _(0004, Phase 4)_ | Reconstructed behaviour + historical intent per component. | `run_id`, `snapshot_id`, `component_id` (unique per run), `purpose`, `historical_context`, `current_role`, `inputs/outputs/side_effects/exceptions/callers/callees/tests/likely_invariants` (JSON), `git`, `classification`, `confidence`, `produced_by` |
 
 `dependencies.kind` is a plain `VARCHAR` via the `EnumString` type decorator
 (`db/types.py`), not a DB `CHECK` — the `DependencyKind` vocabulary grows every phase
-(Phase 2: CONTAINS/IMPORTS/CALLS/INHERITS; Phase 3: DEPENDS_ON/TESTED_BY; Phase 4+:
-CHANGED_BY/CHANGED_WITH/FAILED_IN/FIXED_BY/AFFECTS) and validation happens at the app
-boundary. Migration `0003` drops+recreates the (fully derived) `dependencies` table to
+(Phase 2: CONTAINS/IMPORTS/CALLS/INHERITS; Phase 3: DEPENDS_ON/TESTED_BY; Phase 4:
+CHANGED_BY/CHANGED_WITH; later: FAILED_IN/FIXED_BY/AFFECTS) and validation happens at the
+app boundary. Migration `0003` drops+recreates the (fully derived) `dependencies` table to
 apply the widening.
 
-Later phases add `commits`, `risk_assessments`, `legacy_dna`, … as incremental migrations
-on this baseline.
+Later phases add `risk_assessments`, `legacy_dna`, … as incremental migrations on this
+baseline.
 
 ---
 
@@ -111,10 +117,12 @@ COMPLETED / FAILED / CANCELLED are terminal (no outgoing edges).
 | mode | executed stages |
 |---|---|
 | `INGEST_ONLY` | INGESTING → SNAPSHOTTING |
-| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE _(+ later phases)_ |
+| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING _(+ later phases)_ |
 
 Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**,
-**BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**.
+**ANALYZING_GIT**, **BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**, **ARCHAEOLOGIZING**.
+Tests read the last stage via `tests/conftest.terminal_stage(mode)` instead of pinning a
+literal, so a new phase no longer ripples through every test.
 
 Phase 1 executes the `INGESTING` and `SNAPSHOTTING` prefix and then completes the run in
 `INGEST_ONLY` mode. Analysis stages will _degrade and continue_ on failure (recording a
@@ -287,7 +295,68 @@ filters). `GET /snapshots/{id}/dependencies` now also serves `DEPENDS_ON` / `TES
 
 ---
 
-## 10. Sandbox threat model — _(declared; implemented Phase 7)_
+## 10. Software archaeology & the AI provider (Phase 4, §24-26)
+
+Two deterministic-first stages plus the project's first AI step.
+
+**`ANALYZING_GIT`** (`analysis/git/`)
+
+* `history.read_history` parses `git log --numstat` via the safe `gitcli.run_git`;
+  US/RS control bytes separate records so a commit message cannot break the parser.
+  Bounded by `limits.max_git_history_commits` (soft; truncation → `INFERENCE` evidence).
+* `metrics.compute_git_stats` → per path: churn (Σ ins+del), commit_count, first/last
+  seen, `age_days` (anchor = snapshot ingest time), distinct authors. Co-change counts
+  every unordered pair of `.py` files changed together, skipping package `__init__.py`
+  and bulk commits (> 30 files); `confidence = count / min(commit_count)`.
+* `persist.analyze_git` writes `commits`, sets `Component.metrics["git"]` on FILE + MODULE
+  rows, and emits `CHANGED_WITH` (module↔module, both directions, `attributes` count +
+  confidence) and `CHANGED_BY` (component → `dst=NULL`, `target_name`=sha, capped 20/comp).
+  Cached per snapshot (commit rows + `metrics.git` present).
+
+**`ARCHAEOLOGIZING`** (`analysis/archaeology/`)
+
+* `assumptions.detect_assumptions` — conservative AST heuristics per function:
+  `division` (÷ by an unguarded param), `global_state` (reads/mutates a module-level
+  mutable global), `dict_key` (`d[k] -= …` with no membership check), `environment`
+  (`os.environ[...]` / `os.getenv(x)` no default), `timezone` (naive `datetime.now()`),
+  `empty_collection` (`x[0]` / `min(x)` on an unchecked param), `null` (param `.attr`
+  deref with no `None` guard; `self`/`cls` never flagged). Each stays quiet when guarded.
+* `behavior.reconstruct_behavior` — deterministic facts from AST metrics + CALLS/TESTED_BY
+  edges + `metrics.git`: inputs, outputs, side effects (calls into `io`/`model` modules,
+  async/generator), exceptions (own + 1-level propagated), callers, callees, tests,
+  invariant hints.
+* `reconstruct.run_archaeology` — the AI step: for each assumption and each target
+  component (all modules + top functions by churn·complexity, capped at
+  `ai_max_components_per_run`) it calls the provider for `assumption_analysis`,
+  `historical_intent`, `behavior_analysis`. Persists `assumptions` +
+  `behavior_reconstructions`, writes the `archaeology` artifact, emits a FACT summary +
+  one `HYPOTHESIS` per high-risk assumption. Cached per snapshot by copying the prior
+  run's rows.
+
+**AI provider** (`providers/ai/`, spec §13-14)
+
+* `AIProvider.complete_structured(operation, schema, context)` — the subclass returns a
+  raw dict; the base class pydantic-validates it (`AIOutputError` on failure), then runs
+  **evidence validation**: every `EvidenceRef` whose `ref` is not in
+  `context["known_refs"]` is dropped and, if any were dropped, confidence is floored to
+  `LOW`. AI never invents a component/commit/file/test.
+* `MockAIProvider` — pure function of the context: no network, no randomness, same input
+  → same output. It rephrases + classifies what the deterministic engines already found
+  (e.g. assumption `risk` = per-kind base, bumped by churn and missing tests).
+* `get_ai_provider()` reads `settings.ai_provider` (`"mock"` default). The provider name is
+  pinned into `run.engine_versions["ai_provider"]`; a `claude` value raises until wired.
+* Schemas live in `domain/ai_schemas.py` (`HistoricalIntent`, `BehaviorAnalysis`,
+  `AssumptionAnalysis`, common `AIEnvelope`), each with a `*_SCHEMA_VERSION`.
+
+**API:** `GET /runs/{id}/evolution` (commit count, span, authors, monthly timeline, top
+churn, top co-change), `GET /snapshots/{id}/commits`, `GET /components/{id}/history`
+(git metrics + its commits + co-change neighbours), `GET /runs/{id}/behavior` &
+`GET /components/{id}/behavior`, `GET /runs/{id}/assumptions` (filter `kind` / `risk` /
+`component_id`).
+
+---
+
+## 11. Sandbox threat model — _(declared; implemented Phase 7)_
 
 All repository code, generated tests and generated patches are **UNTRUSTED** and will only
 ever run inside an ephemeral Docker container: non-root, `--read-only` rootfs + tmpfs
@@ -300,7 +369,7 @@ than silently drops.
 
 ---
 
-## 11. Scoring engines — _(declared; implemented Phases 5–9)_
+## 12. Scoring engines — _(declared; implemented Phases 5–9)_
 
 Legacy Risk, Change Safety, Hotspot, Repository Understanding and Patch Ranking will each
 be a versioned module under `archon/scoring/` with an explicit signal set, normalisation,

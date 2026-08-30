@@ -14,6 +14,25 @@ class Classification(str, enum.Enum):
     RECOMMENDATION = "RECOMMENDATION"
 
 
+class Confidence(str, enum.Enum):
+    """Confidence attached to an AI conclusion (spec sections 4, 13-14)."""
+
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+    UNKNOWN = "UNKNOWN"
+
+    @property
+    def score(self) -> float:
+        return {"HIGH": 0.9, "MEDIUM": 0.6, "LOW": 0.3, "UNKNOWN": 0.0}[self.value]
+
+
+class RiskLevel(str, enum.Enum):
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
 class ProviderKind(str, enum.Enum):
     LOCAL = "LOCAL"
     GITHUB = "GITHUB"
