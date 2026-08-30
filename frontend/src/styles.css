@@ -1,0 +1,39 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bg: #0f1115;
+  --panel: #1a1d24;
+  --line: #2a2f3a;
+  --text: #e6e8ec;
+  --muted: #9aa4b2;
+  --accent: #5b9dff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 20px; margin: 0 0 16px; }
+h2 { font-size: 15px; margin: 20px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+input, button, select {
+  background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; font: inherit;
+}
+input { min-width: 320px; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; font-weight: 600; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 8px 0; }
+.card .repo-url { font-weight: 600; }
+.meta { color: var(--muted); font-size: 13px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.pill.SUPPORTED, .pill.COMPLETED, .pill.FACT { color: #7ee0a2; border-color: #2f6b47; }
+.pill.PARTIALLY_SUPPORTED, .pill.RUNNING, .pill.QUEUED, .pill.INFERENCE { color: #ffd479; border-color: #7a6327; }
+.pill.UNSUPPORTED, .pill.FAILED, .pill.HYPOTHESIS { color: #ff9d9d; border-color: #7a3030; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 8px 0; }
+.bar > div { height: 100%; background: var(--accent); transition: width 0.3s; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+code { background: #000; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.err { color: #ff9d9d; }
+a { color: var(--accent); cursor: pointer; }
+.back { margin-bottom: 12px; display: inline-block; }

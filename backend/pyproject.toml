@@ -1,0 +1,49 @@
+[project]
+name = "archon"
+version = "0.1.0"
+description = "ARCHON - AI Software Archaeologist & Self-Healing Legacy Code Platform"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "httpx>=0.27",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov", "anyio>=4", "ruff>=0.6"]
+postgres = ["psycopg[binary]>=3.1"]
+
+[project.scripts]
+archon = "archon.cli.main:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["archon*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+# B008: required call style for FastAPI Depends()/Query() and Typer Option().
+# E501: long lines are almost all user-facing suggested_action / docstring strings.
+# UP042: `str, Enum` mixin is deliberate for JSON-friendly values.
+ignore = ["B008", "E501", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*" = ["E402"]

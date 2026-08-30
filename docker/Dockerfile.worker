@@ -1,0 +1,16 @@
+# ARCHON analysis worker image.
+# Later phases mount the host Docker socket here so the worker can launch locked-down
+# sandbox containers; Phase 1 only needs git + the package.
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY backend/ /app/backend/
+RUN pip install --no-cache-dir -e "/app/backend[postgres]"
+
+ENV ARCHON_DATA_ROOT=/data
+VOLUME ["/data"]
+
+CMD ["python", "-m", "archon.cli.main", "worker"]

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ARCHON runtime data
+_archon_data/
+_e2e/
+*.db
+backend/archon.db
+
+# Node
+node_modules/
+frontend/dist/
+
+# Editors / OS
+.env
+.DS_Store
+.idea/
+.vscode/

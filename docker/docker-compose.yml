@@ -1,0 +1,55 @@
+# ARCHON local stack (spec section 18). Phase 1: api + worker + postgres.
+# Run from the repo root:  docker compose -f docker/docker-compose.yml up --build
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: archon
+      POSTGRES_PASSWORD: archon
+      POSTGRES_DB: archon
+    ports:
+      - "5432:5432"
+    volumes:
+      - archon_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    environment:
+      ARCHON_DATABASE_URL: postgresql+psycopg://archon:archon@db:5432/archon
+      ARCHON_GITHUB_TOKEN: ${ARCHON_GITHUB_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - archon_data:/data
+    command: >
+      sh -c "python -m archon.cli.main db-upgrade &&
+             python -m archon.cli.main serve --host 0.0.0.0 --port 8000"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      ARCHON_DATABASE_URL: postgresql+psycopg://archon:archon@db:5432/archon
+      ARCHON_GITHUB_TOKEN: ${ARCHON_GITHUB_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - archon_data:/data
+
+volumes:
+  archon_db:
+  archon_data:
