@@ -55,6 +55,34 @@ export interface Run {
   evidence: Evidence[];
 }
 
+export interface Component {
+  id: string;
+  snapshot_id: string;
+  parent_id: string | null;
+  kind: "FILE" | "MODULE" | "CLASS" | "FUNCTION" | "METHOD";
+  name: string;
+  qualified_name: string;
+  path: string;
+  start_line: number | null;
+  end_line: number | null;
+  metrics: Record<string, unknown>;
+  attributes: Record<string, unknown>;
+  is_test: boolean;
+  is_entrypoint: boolean;
+  is_config: boolean;
+  role: string | null;
+}
+
+export interface SourceSummary {
+  snapshot_id: string;
+  analyzed: boolean;
+  components: Record<string, number>;
+  edges: Record<string, number>;
+  entrypoints: Component[];
+  tests: number;
+  config_files: number;
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -77,10 +105,13 @@ export const api = {
   createRepository: (url: string) =>
     req<Repository>("/repositories", { method: "POST", body: JSON.stringify({ url }) }),
   listRuns: (repoId: string) => req<Run[]>(`/repositories/${repoId}/runs`),
-  createRun: (repoId: string, ref?: string) =>
+  createRun: (repoId: string, mode: "INGEST_ONLY" | "ANALYSIS_ONLY" = "ANALYSIS_ONLY", ref?: string) =>
     req<Run>(`/repositories/${repoId}/runs`, {
       method: "POST",
-      body: JSON.stringify({ ref: ref || null, mode: "INGEST_ONLY" }),
+      body: JSON.stringify({ ref: ref || null, mode }),
     }),
   getRun: (runId: string) => req<Run>(`/runs/${runId}`),
+  getRunSource: (runId: string) => req<SourceSummary>(`/runs/${runId}/source`),
+  listComponents: (snapshotId: string, params = "") =>
+    req<Component[]>(`/snapshots/${snapshotId}/components?limit=1000${params}`),
 };

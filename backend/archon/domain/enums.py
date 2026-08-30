@@ -19,6 +19,26 @@ class ProviderKind(str, enum.Enum):
     GITHUB = "GITHUB"
 
 
+class ComponentKind(str, enum.Enum):
+    """Source-code entities extracted in Phase 2 (spec section 22)."""
+
+    FILE = "FILE"
+    MODULE = "MODULE"
+    CLASS = "CLASS"
+    FUNCTION = "FUNCTION"
+    METHOD = "METHOD"
+
+
+class DependencyKind(str, enum.Enum):
+    """Edges between components (spec sections 22-23)."""
+
+    CONTAINS = "CONTAINS"
+    IMPORTS = "IMPORTS"
+    CALLS = "CALLS"
+    INHERITS = "INHERITS"
+    DEPENDS_ON = "DEPENDS_ON"
+
+
 class SupportLevel(str, enum.Enum):
     """MVP supported-repository contract (spec section 17)."""
 

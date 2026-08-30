@@ -1,6 +1,6 @@
 # ARCHON Architecture (living document)
 
-This records the architectural decisions that are **implemented** as of Phase 1, plus the
+This records the architectural decisions that are **implemented** as of Phase 2, plus the
 contracts later phases must honour. It is the source of truth the spec demands (§8, §9,
 §60). Sections marked _(declared)_ are fixed decisions whose code lands in a later phase.
 
@@ -42,6 +42,7 @@ contracts later phases must honour. It is the source of truth the spec demands (
 | `core` | `ids` (ULID), `errors` (taxonomy), `logging` (structured + secret redaction), `versions` (engine-version registry). |
 | `domain` | Enums / value objects: `Classification`, `RunState`, `JobState`, `Stage`, `SupportLevel`, `RunMode`, `ProviderKind`. |
 | `db` | SQLAlchemy models, engine/session, `migrate` (programmatic Alembic). |
+| `analysis/source` | Phase 2 - `ast`-based extractor: components, dependencies, complexity, entry points, resolution. |
 | `providers/repo` | `RepositoryProvider` ABC, `LocalRepositoryProvider`, `GitHubRepositoryProvider`, `gitcli` safe wrapper. |
 | `workspace` | `WorkspaceManager` — disposable, quota-checked, path-traversal-safe checkout dirs. |
 | `jobs` | `state_machine`, `manager` (DB queue), `worker` (loop). |
@@ -65,9 +66,11 @@ analysis-output row carries `run_id`; snapshots are immutable once written.
 | `analysis_artifacts` | Pointers to large/generated files (fs/object, not inline). | `run_id`, `kind`, `storage`, `ref`, `sha256`, `size_bytes` |
 | `evidence` | Central conclusion record (§4). | `run_id`, `stage`, `classification`, `summary`, `detail`, `source_path/line`, `confidence`, `produced_by`, `refs` |
 | `jobs` | Background unit of work. | `run_id` (unique), `state`, `priority`, `attempts`/`max_attempts`, `idempotency_key` (unique), `dedupe_key`, `heartbeat_at`, `cancel_requested`, `error` |
+| `components` _(0002, Phase 2)_ | A source entity (file/module/class/function/method). Keyed to the **snapshot** so extraction is reused across runs. | `snapshot_id`, `parent_id` (CONTAINS tree), `kind`, `name`, `qualified_name`, `path`, `start_line`/`end_line`, `metrics`, `attributes`, `is_test`/`is_entrypoint`/`is_config`, `role` (Phase 3) |
+| `dependencies` _(0002, Phase 2)_ | A directed edge between components. | `snapshot_id`, `src_component_id`, `dst_component_id` (null = unresolved), `kind` (CONTAINS/IMPORTS/CALLS/INHERITS), `target_name`, `resolved`, `external`, `source_line`, `attributes` |
 
-Later phases add `components`, `dependencies`, `commits`, `risk_assessments`,
-`legacy_dna`, … as incremental migrations on this baseline.
+Later phases add `commits`, `risk_assessments`, `legacy_dna`, … as incremental migrations
+on this baseline.
 
 ---
 
@@ -93,6 +96,15 @@ COMPLETED / FAILED / CANCELLED are terminal (no outgoing edges).
   stage;
 * **idempotency:** re-running a stage first deletes the rows it owns
   (`DELETE FROM evidence WHERE run_id = ? AND stage = ?`) then rewrites them.
+
+**Which stages run** is chosen by `run.mode` (`pipeline/orchestrator.py::_STAGE_PLANS`):
+
+| mode | executed stages |
+|---|---|
+| `INGEST_ONLY` | INGESTING → SNAPSHOTTING |
+| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE _(+ later phases)_ |
+
+Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**.
 
 Phase 1 executes the `INGESTING` and `SNAPSHOTTING` prefix and then completes the run in
 `INGEST_ONLY` mode. Analysis stages will _degrade and continue_ on failure (recording a
@@ -178,7 +190,51 @@ characterization/generation can still establish baselines (§33).
 
 ---
 
-## 8. Sandbox threat model — _(declared; implemented Phase 7)_
+## 8. Source intelligence (Phase 2, §22)
+
+`analysis/source/` extracts a Python checkout with the standard-library `ast` module —
+no third-party parser. Two passes: build the module-name index, then parse each module and
+resolve raw import/inherit/call records into edges against that index.
+
+**Components** (`ComponentKind`): `FILE` (every `.py` plus recognised config files),
+`MODULE` (per `.py`, dotted name, `src/` stripped), `CLASS`, `FUNCTION` (module-level and
+nested up to depth 3), `METHOD`. Every component keeps `path` + `start_line`/`end_line`.
+`metrics` holds numbers — `complexity`, `loc`, `sloc`, `param_count`, `args`,
+`decorators`, `returns_annotation`, `is_async`, `is_generator`, `raises`, `has_docstring`
+(classes add `method_count`; modules add module-level `complexity`). `attributes` holds
+`is_package`, `is_test`, `parse_error`, `bases`, …; `is_test` / `is_entrypoint` /
+`is_config` are also promoted to indexed columns.
+
+**Cyclomatic complexity** (`complexity.v1`, documented in `complexity.py`):
+`1 + if/elif + for + while + except + with-item + (BoolOp values − 1) + comprehension
+for/if + ternary + match-case + assert`. Each callable is measured on its own body;
+nested defs/classes are excluded and measured separately.
+
+**Edges** (`DependencyKind`): `CONTAINS` (from the parent tree), `IMPORTS`
+(module→module; imported names in `attributes`), `INHERITS` (class→class), `CALLS`
+(callable→callable, incl. `self.method()` and `Name()` constructors). Resolution is
+**conservative**: `resolved=True` only when the target is a real component in the
+snapshot; unresolved references to something the module explicitly imported are kept
+(`external=True`, `dst=None`); unresolved bare names (locals, builtins, duck-typed
+attribute calls) are dropped.
+
+**Entry points:** `if __name__ == "__main__"` guards, declared `console_scripts`
+(pyproject `[project.scripts]` / entry-points, setup.cfg, best-effort setup.py), and
+framework signals (`uvicorn.run`, `FastAPI(`, `Flask(`).
+
+**Caching (§53):** components/dependencies are keyed to the immutable snapshot. A second
+run over the same commit does **not** re-parse — the stage records "reused cached source
+analysis". Syntax errors, oversize files and a file-count breach are recorded as
+`INFERENCE` evidence / `degraded` and never abort the run.
+
+**API:** `GET /snapshots/{id}/components` (filter `kind`, `path`, `is_test`,
+`is_entrypoint`, `q`), `GET /components/{id}` (with child + edge counts),
+`GET /snapshots/{id}/dependencies` (filter `kind`, `resolved`, `external`, `src`),
+`GET /runs/{id}/source` (summary).
+
+---
+
+## 9. Sandbox threat model — _(declared; implemented Phase 7)_
 
 All repository code, generated tests and generated patches are **UNTRUSTED** and will only
 ever run inside an ephemeral Docker container: non-root, `--read-only` rootfs + tmpfs
@@ -191,7 +247,7 @@ than silently drops.
 
 ---
 
-## 9. Scoring engines — _(declared; implemented Phases 5–9)_
+## 10. Scoring engines — _(declared; implemented Phases 5–9)_
 
 Legacy Risk, Change Safety, Hotspot, Repository Understanding and Patch Ranking will each
 be a versioned module under `archon/scoring/` with an explicit signal set, normalisation,

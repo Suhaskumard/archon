@@ -2,6 +2,8 @@
 
 from archon.domain.enums import (
     Classification,
+    ComponentKind,
+    DependencyKind,
     JobState,
     JobType,
     ProviderKind,
@@ -13,6 +15,8 @@ from archon.domain.enums import (
 
 __all__ = [
     "Classification",
+    "ComponentKind",
+    "DependencyKind",
     "JobState",
     "JobType",
     "ProviderKind",

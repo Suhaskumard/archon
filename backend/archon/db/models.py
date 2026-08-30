@@ -30,6 +30,8 @@ from archon.core.ids import new_id
 from archon.db.base import Base
 from archon.domain.enums import (
     Classification,
+    ComponentKind,
+    DependencyKind,
     JobState,
     JobType,
     ProviderKind,
@@ -210,9 +212,87 @@ class Job(Base, TimestampMixin):
     run: Mapped[AnalysisRun] = relationship(back_populates="job")
 
 
+class Component(Base, TimestampMixin):
+    """A source-code entity: file, module, class, function or method (spec section 22).
+
+    Belongs to a snapshot (not a run) so extraction results are reused across runs of the
+    same commit. ``parent_id`` gives the CONTAINS tree; ``metrics`` holds numbers
+    (loc, complexity, ...) and ``attributes`` holds flags (is_test, entrypoint, ...).
+    """
+
+    __tablename__ = "components"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "kind", "qualified_name", name="uq_component_identity"),
+        Index("ix_component_snapshot_kind", "snapshot_id", "kind"),
+        Index("ix_component_path", "snapshot_id", "path"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("comp"))
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    parent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[ComponentKind] = mapped_column(_enum(ComponentKind), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    qualified_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    start_line: Mapped[int | None] = mapped_column(Integer)
+    end_line: Mapped[int | None] = mapped_column(Integer)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    attributes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # promoted flags (indexable; also mirrored in ``attributes``)
+    is_test: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_entrypoint: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_config: Mapped[bool] = mapped_column(default=False, nullable=False)
+    role: Mapped[str | None] = mapped_column(String(64))  # filled in Phase 3
+
+    snapshot: Mapped[RepositorySnapshot] = relationship()
+    parent: Mapped[Component | None] = relationship(remote_side="Component.id")
+
+
+class Dependency(Base, TimestampMixin):
+    """A directed edge between components (IMPORTS / CALLS / INHERITS ...) (spec section 22).
+
+    ``dst_component_id`` is null when the target could not be resolved to a component in
+    this snapshot (e.g. a stdlib/third-party import); ``target_name`` always records the
+    raw dotted reference and ``resolved`` says whether the edge landed on a component.
+    """
+
+    __tablename__ = "dependencies"
+    __table_args__ = (
+        Index("ix_dependency_src", "src_component_id", "kind"),
+        Index("ix_dependency_dst", "dst_component_id"),
+        Index("ix_dependency_snapshot_kind", "snapshot_id", "kind"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("dep"))
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    src_component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False
+    )
+    dst_component_id: Mapped[str | None] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE")
+    )
+    kind: Mapped[DependencyKind] = mapped_column(_enum(DependencyKind), nullable=False)
+    target_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    resolved: Mapped[bool] = mapped_column(default=False, nullable=False)
+    external: Mapped[bool] = mapped_column(default=False, nullable=False)
+    source_line: Mapped[int | None] = mapped_column(Integer)
+    attributes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    src: Mapped[Component] = relationship(foreign_keys=[src_component_id])
+    dst: Mapped[Component | None] = relationship(foreign_keys=[dst_component_id])
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
+    "Component",
+    "Dependency",
     "Evidence",
     "Job",
     "Repository",

@@ -57,6 +57,21 @@ _FILES_V2 = {
         "    if _STOCK.get(sku, 0) < amount:\n        raise ValueError('insufficient stock')\n"
         "    _STOCK[sku] -= amount\n    return line_total(1, amount)\n"
     ),
+    "legacy_shop/orders.py": (
+        '"""Order objects - exercises classes, methods and inheritance."""\n\n'
+        "from legacy_shop.billing import line_total, unit_price\n\n\n"
+        "class Order:\n"
+        "    def __init__(self, sku, qty, price):\n"
+        "        self.sku = sku\n        self.qty = qty\n        self.price = price\n\n"
+        "    def total(self):\n        return line_total(self.price, self.qty)\n\n"
+        "    def average(self, paid):\n        return unit_price(paid, self.qty)\n\n\n"
+        "class RushOrder(Order):\n"
+        "    SURCHARGE = 5\n\n"
+        "    def total(self):\n"
+        "        base = super().total()\n"
+        "        if base is None:\n            return self.SURCHARGE\n"
+        "        return base + self.SURCHARGE\n"
+    ),
     "tests/test_billing.py": (
         "from legacy_shop.billing import line_total\n\n\n"
         "def test_line_total():\n    assert line_total(10, 3) == 30\n"

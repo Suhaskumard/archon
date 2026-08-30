@@ -9,7 +9,9 @@ incidents, and recommends a safe modernization order.
 
 * Full plan: [`docs/ARCHON_IMPLEMENTATION_PLAN.md`](docs/ARCHON_IMPLEMENTATION_PLAN.md)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
-* Status: **Phase 1 complete** — [`docs/PHASE_1_COMPLETION.md`](docs/PHASE_1_COMPLETION.md)
+* Status: **Phases 1–2 complete** —
+  [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
+  [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence)
 
 ## Quick start (local, SQLite)
 
@@ -20,7 +22,8 @@ python -m venv .venv
 
 cd backend
 ../.venv/Scripts/python -m archon.cli.main db-upgrade
-../.venv/Scripts/python -m archon.cli.main analyze https://github.com/psf/requests --wait
+# ingest + Python source analysis (components, dependencies, complexity, entry points)
+../.venv/Scripts/python -m archon.cli.main analyze https://github.com/psf/requests --mode analysis_only --wait
 ```
 
 Run the service + worker:
@@ -45,7 +48,7 @@ docker compose -f docker/docker-compose.yml up --build
 ## Tests
 
 ```bash
-cd backend && ../.venv/Scripts/python -m pytest        # 63 passing
+cd backend && ../.venv/Scripts/python -m pytest        # 112 passing
 ../.venv/Scripts/python -m ruff check archon tests alembic
 ```
 

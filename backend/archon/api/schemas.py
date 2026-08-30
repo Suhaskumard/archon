@@ -78,3 +78,46 @@ class Page(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# --- Phase 2: source intelligence ---------------------------------------------------
+
+
+class ComponentOut(BaseModel):
+    id: str
+    snapshot_id: str
+    parent_id: str | None
+    kind: str
+    name: str
+    qualified_name: str
+    path: str
+    start_line: int | None
+    end_line: int | None
+    metrics: dict
+    attributes: dict
+    is_test: bool
+    is_entrypoint: bool
+    is_config: bool
+    role: str | None
+
+
+class DependencyOut(BaseModel):
+    id: str
+    kind: str
+    src_component_id: str
+    dst_component_id: str | None
+    target_name: str
+    resolved: bool
+    external: bool
+    source_line: int | None
+    attributes: dict
+
+
+class SourceSummaryOut(BaseModel):
+    snapshot_id: str
+    analyzed: bool
+    components: dict[str, int]
+    edges: dict[str, int]
+    entrypoints: list[ComponentOut] = []
+    tests: int = 0
+    config_files: int = 0

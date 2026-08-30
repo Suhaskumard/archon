@@ -2,8 +2,56 @@
 
 from __future__ import annotations
 
-from archon.api.schemas import EvidenceOut, RepositoryOut, RunOut, SnapshotOut
-from archon.db.models import AnalysisRun, Evidence, Repository, RepositorySnapshot
+from archon.api.schemas import (
+    ComponentOut,
+    DependencyOut,
+    EvidenceOut,
+    RepositoryOut,
+    RunOut,
+    SnapshotOut,
+)
+from archon.db.models import (
+    AnalysisRun,
+    Component,
+    Dependency,
+    Evidence,
+    Repository,
+    RepositorySnapshot,
+)
+
+
+def component_out(c: Component) -> ComponentOut:
+    return ComponentOut(
+        id=c.id,
+        snapshot_id=c.snapshot_id,
+        parent_id=c.parent_id,
+        kind=c.kind.value,
+        name=c.name,
+        qualified_name=c.qualified_name,
+        path=c.path,
+        start_line=c.start_line,
+        end_line=c.end_line,
+        metrics=c.metrics or {},
+        attributes=c.attributes or {},
+        is_test=c.is_test,
+        is_entrypoint=c.is_entrypoint,
+        is_config=c.is_config,
+        role=c.role,
+    )
+
+
+def dependency_out(d: Dependency) -> DependencyOut:
+    return DependencyOut(
+        id=d.id,
+        kind=d.kind.value,
+        src_component_id=d.src_component_id,
+        dst_component_id=d.dst_component_id,
+        target_name=d.target_name,
+        resolved=d.resolved,
+        external=d.external,
+        source_line=d.source_line,
+        attributes=d.attributes or {},
+    )
 
 
 def repository_out(repo: Repository) -> RepositoryOut:

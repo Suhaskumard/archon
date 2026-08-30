@@ -1,13 +1,14 @@
 """Pipeline orchestrator.
 
-Phase 1 executes the ingestion prefix of the state machine:
+Walks the executable prefix of the analysis state machine for a run, one stage at a time,
+persisting ``last_completed_stage`` so resumption is well-defined. Which stages run is
+decided by ``run.mode`` (``_STAGE_PLANS``); every stage is idempotent (re-running a stage
+first clears the rows it owns).
 
-    INGESTING   -> validate + fetch metadata + secure clone into a fresh workspace
-    SNAPSHOTTING -> classify support, persist an immutable RepositorySnapshot, link the run
-
-Later phases append stages after SNAPSHOTTING; the orchestrator already walks
-``STAGE_ORDER`` and persists ``last_completed_stage`` so resumption is well-defined.
-Every stage is idempotent: re-running a stage first clears the rows it owns for this run.
+Implemented stages:
+    INGESTING            validate + fetch metadata + secure clone into a fresh workspace
+    SNAPSHOTTING         classify support, persist an immutable RepositorySnapshot
+    ANALYZING_SOURCE     Python AST extraction -> components + dependencies (Phase 2)
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from archon.analysis.source.persist import analyze_source
 from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.logging import get_logger
@@ -27,12 +29,15 @@ from archon.jobs.manager import JobManager
 from archon.jobs.state_machine import RunStateMachine
 from archon.pipeline.support import assess_support
 from archon.providers.repo import provider_for
-from archon.workspace.manager import WorkspaceManager
+from archon.workspace.manager import Workspace, WorkspaceManager
 
 log = get_logger("archon.pipeline")
 
-# stages this phase knows how to execute, in order
-PHASE1_STAGES: tuple[Stage, ...] = (Stage.INGESTING, Stage.SNAPSHOTTING)
+_STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
+    RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
+    RunMode.ANALYSIS_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING, Stage.ANALYZING_SOURCE),
+    RunMode.FULL: (Stage.INGESTING, Stage.SNAPSHOTTING, Stage.ANALYZING_SOURCE),
+}
 
 
 def _utcnow() -> datetime:
@@ -46,6 +51,7 @@ class PipelineResult:
     commit_sha: str
     support_level: str
     stages_completed: list[str]
+    source: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -69,12 +75,14 @@ class PipelineOrchestrator:
         repository = session.get(Repository, run.repository_id)
         assert repository is not None
 
+        plan = _STAGE_PLANS.get(run.mode, _STAGE_PLANS[RunMode.INGEST_ONLY])
         sm = RunStateMachine(run.state, run.current_stage)
         completed: list[str] = []
         clone_result = None
         snapshot: RepositorySnapshot | None = None
+        source_summary: dict | None = None
 
-        for stage in PHASE1_STAGES:
+        for stage in plan:
             self._check_cancel(session, job)
             sm.enter_stage(stage)
             run.current_stage = stage
@@ -86,19 +94,19 @@ class PipelineOrchestrator:
             elif stage is Stage.SNAPSHOTTING:
                 assert clone_result is not None
                 snapshot = self._snapshot(session, run, repository, clone_result)
+            elif stage is Stage.ANALYZING_SOURCE:
+                assert clone_result is not None and snapshot is not None
+                source_summary = self._source(session, run, snapshot, clone_result.workspace)
 
             run.last_completed_stage = stage
-            run.progress_pct = 100.0 * (len(completed) + 1) / len(PHASE1_STAGES)
+            run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
             completed.append(stage.value)
             session.flush()
             if job is not None:
                 self.jobs.heartbeat(session, job, progress_pct=run.progress_pct)
 
         assert clone_result is not None and snapshot is not None
-        # Phase 1 runs are INGEST_ONLY: the ingestion prefix is the whole run.
-        if run.mode == RunMode.INGEST_ONLY:
-            run.ended_at = _utcnow()
-
+        run.ended_at = _utcnow()
         log.info(
             "pipeline finished",
             extra={"extra_fields": {"run_id": run_id, "stages": completed}},
@@ -109,6 +117,7 @@ class PipelineOrchestrator:
             commit_sha=snapshot.commit_sha,
             support_level=snapshot.support_level.value,
             stages_completed=completed,
+            source=source_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -118,7 +127,6 @@ class PipelineOrchestrator:
         ref = provider.parse(repository.url, ref=run.requested_ref)
         metadata = provider.fetch_metadata(ref)
 
-        # hard size gate before we spend bandwidth
         limits = get_settings().limits
         if metadata.size_bytes and metadata.size_bytes > limits.max_repo_size_bytes:
             raise ArchonError(
@@ -144,10 +152,7 @@ class PipelineOrchestrator:
             raise
 
         self._add_evidence(
-            session,
-            run,
-            Stage.INGESTING,
-            Classification.FACT,
+            session, run, Stage.INGESTING, Classification.FACT,
             f"Cloned {ref.slug} at {clone_result.commit_sha[:12]}",
             detail=(
                 f"branch={clone_result.branch or 'detached'} "
@@ -157,20 +162,12 @@ class PipelineOrchestrator:
             produced_by="ingestion.v1",
             refs={"commit_sha": clone_result.commit_sha, "workspace_id": workspace.id},
         )
-
         if clone_result.commit_count > limits.max_git_history_commits:
             self._add_evidence(
-                session,
-                run,
-                Stage.INGESTING,
-                Classification.INFERENCE,
+                session, run, Stage.INGESTING, Classification.INFERENCE,
                 "Git history exceeds the configured limit; archaeology will be truncated",
-                detail=(
-                    f"commit_count={clone_result.commit_count} "
-                    f"limit={limits.max_git_history_commits}"
-                ),
-                produced_by="ingestion.v1",
-                confidence=1.0,
+                detail=f"commit_count={clone_result.commit_count} limit={limits.max_git_history_commits}",
+                produced_by="ingestion.v1", confidence=1.0,
             )
         return clone_result
 
@@ -180,17 +177,13 @@ class PipelineOrchestrator:
         repo_dir = clone_result.workspace.resolve_within("repo")
         assessment = assess_support(repo_dir, commit_count=clone_result.commit_count)
 
-        existing = session.scalar(
+        snapshot = session.scalar(
             select(RepositorySnapshot).where(
                 RepositorySnapshot.repository_id == repository.id,
                 RepositorySnapshot.commit_sha == clone_result.commit_sha,
             )
         )
-        if existing is not None:
-            # reuse the immutable snapshot; drop the redundant fresh checkout
-            self.workspaces.cleanup(clone_result.workspace)
-            snapshot = existing
-        else:
+        if snapshot is None:
             snapshot = RepositorySnapshot(
                 repository_id=repository.id,
                 commit_sha=clone_result.commit_sha,
@@ -205,25 +198,34 @@ class PipelineOrchestrator:
             )
             session.add(snapshot)
             session.flush()
+        else:
+            # immutable content; refresh the pointer to this run's live checkout
+            snapshot.workspace_ref = str(repo_dir)
 
         run.snapshot_id = snapshot.id
-
         cls = (
             Classification.FACT
             if assessment.level.value == "SUPPORTED"
             else Classification.INFERENCE
         )
         self._add_evidence(
-            session,
-            run,
-            Stage.SNAPSHOTTING,
-            cls,
+            session, run, Stage.SNAPSHOTTING, cls,
             f"Repository support level: {assessment.level.value}",
             detail="; ".join(assessment.reasons) or "meets all SUPPORTED criteria",
-            produced_by="snapshot.v1",
-            confidence=1.0,
+            produced_by="snapshot.v1", confidence=1.0,
         )
         return snapshot
+
+    def _source(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        repo_dir = workspace.resolve_within("repo")
+        summary = analyze_source(session, run, snapshot, repo_dir)
+        log.info(
+            "source stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
 
     # --- helpers ----------------------------------------------------------
 
@@ -259,15 +261,8 @@ class PipelineOrchestrator:
     ) -> None:
         session.add(
             Evidence(
-                run_id=run.id,
-                stage=stage,
-                classification=classification,
-                summary=summary[:512],
-                detail=detail,
-                source_path=source_path,
-                source_line=source_line,
-                confidence=confidence,
-                produced_by=produced_by,
-                refs=refs,
+                run_id=run.id, stage=stage, classification=classification,
+                summary=summary[:512], detail=detail, source_path=source_path,
+                source_line=source_line, confidence=confidence, produced_by=produced_by, refs=refs,
             )
         )

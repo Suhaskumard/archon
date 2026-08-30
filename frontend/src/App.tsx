@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Repository, type Run } from "./api";
+import { api, type Component, type Repository, type Run, type SourceSummary } from "./api";
 
 export function App() {
   const [runId, setRunId] = useState<string | null>(null);
@@ -56,7 +56,7 @@ function RepositoryManager({ onOpenRun }: { onOpenRun: (id: string) => void }) {
 
   const startRun = (repoId: string) =>
     guard(async () => {
-      const run = await api.createRun(repoId);
+      const run = await api.createRun(repoId, "ANALYSIS_ONLY");
       onOpenRun(run.id);
     });
 
@@ -90,7 +90,7 @@ function RepositoryManager({ onOpenRun }: { onOpenRun: (id: string) => void }) {
             </div>
             <div className="row">
               <button className="primary" onClick={() => void startRun(r.id)}>
-                Ingest
+                Analyze
               </button>
               <RunsInline repoId={r.id} onOpenRun={onOpenRun} />
             </div>
@@ -129,6 +129,95 @@ function RunsInline({ repoId, onOpenRun }: { repoId: string; onOpenRun: (id: str
         </option>
       ))}
     </select>
+  );
+}
+
+function SourceIntel({ runId, snapshotId }: { runId: string; snapshotId: string }) {
+  const [sum, setSum] = useState<SourceSummary | null>(null);
+  const [comps, setComps] = useState<Component[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .getRunSource(runId)
+      .then((s) => live && setSum(s))
+      .catch((e) => live && setErr(e instanceof Error ? e.message : String(e)));
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+
+  if (err) return <p className="err">source: {err}</p>;
+  if (!sum || !sum.analyzed) return null;
+
+  const topComplex = (comps ?? [])
+    .filter((c) => typeof c.metrics.complexity === "number")
+    .sort((a, b) => (b.metrics.complexity as number) - (a.metrics.complexity as number))
+    .slice(0, 8);
+
+  return (
+    <>
+      <h2>Source Intelligence</h2>
+      <div className="card">
+        <div className="row" style={{ gap: 16 }}>
+          {Object.entries(sum.components).map(([k, v]) => (
+            <span key={k} className="meta">
+              <b>{v}</b> {k.toLowerCase()}
+            </span>
+          ))}
+        </div>
+        <div className="row" style={{ gap: 16, marginTop: 6 }}>
+          {["IMPORTS", "CALLS", "INHERITS", "CONTAINS"].map((k) => (
+            <span key={k} className="meta">
+              <b>{sum.edges[k] ?? 0}</b> {k.toLowerCase()}
+            </span>
+          ))}
+          <span className="meta">
+            <b>{sum.edges.resolved ?? 0}</b> resolved
+          </span>
+          <span className="meta">
+            <b>{sum.tests}</b> test modules · <b>{sum.config_files}</b> config files
+          </span>
+        </div>
+        {sum.entrypoints.length > 0 && (
+          <div className="meta" style={{ marginTop: 6 }}>
+            entry points: {sum.entrypoints.map((e) => e.qualified_name).join(", ")}
+          </div>
+        )}
+        <div style={{ marginTop: 8 }}>
+          <a onClick={() => void api.listComponents(snapshotId).then(setComps).catch(() => undefined)}>
+            {comps ? "loaded" : "load components →"}
+          </a>
+        </div>
+        {topComplex.length > 0 && (
+          <table style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Most complex</th>
+                <th>Kind</th>
+                <th>Cx</th>
+                <th>LOC</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topComplex.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.qualified_name}</td>
+                  <td className="meta">{c.kind}</td>
+                  <td>{String(c.metrics.complexity)}</td>
+                  <td className="meta">{String(c.metrics.loc ?? "")}</td>
+                  <td className="meta">
+                    {c.path}:{c.start_line}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -204,6 +293,10 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
                 </div>
               </div>
             </>
+          )}
+
+          {run.state === "COMPLETED" && run.snapshot_id && (
+            <SourceIntel runId={run.id} snapshotId={run.snapshot_id} />
           )}
 
           <h2>Evidence</h2>

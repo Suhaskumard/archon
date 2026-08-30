@@ -7,11 +7,14 @@ results are reproducible and cache keys never cross incompatible engine versions
 
 from __future__ import annotations
 
-# Phase 1 only ships the ingestion pipeline; later phases append their engines here.
+# Each phase appends the engines it introduces. Snapshotted onto every AnalysisRun.
 ENGINE_VERSIONS: dict[str, str] = {
     "pipeline": "pipeline.v1",
     "ingestion": "ingestion.v1",
     "snapshot": "snapshot.v1",
+    # Phase 2 - source intelligence
+    "source": "source.v1",
+    "complexity": "complexity.v1",
 }
 
 
