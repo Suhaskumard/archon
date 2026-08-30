@@ -30,13 +30,25 @@ class ComponentKind(str, enum.Enum):
 
 
 class DependencyKind(str, enum.Enum):
-    """Edges between components (spec sections 22-23)."""
+    """Edges between components / modules (spec sections 22-23).
+
+    Phase 2 populates CONTAINS/IMPORTS/CALLS/INHERITS; Phase 3 adds module-level
+    DEPENDS_ON and TESTED_BY. The remaining kinds are declared now so the vocabulary is
+    stable for the whole project and are populated by their phase (git = Phase 4,
+    failures/patches = Phase 9).
+    """
 
     CONTAINS = "CONTAINS"
     IMPORTS = "IMPORTS"
     CALLS = "CALLS"
     INHERITS = "INHERITS"
     DEPENDS_ON = "DEPENDS_ON"
+    TESTED_BY = "TESTED_BY"
+    CHANGED_BY = "CHANGED_BY"
+    CHANGED_WITH = "CHANGED_WITH"
+    FAILED_IN = "FAILED_IN"
+    FIXED_BY = "FIXED_BY"
+    AFFECTS = "AFFECTS"
 
 
 class SupportLevel(str, enum.Enum):

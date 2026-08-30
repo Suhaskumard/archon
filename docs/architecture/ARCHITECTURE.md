@@ -1,6 +1,6 @@
 # ARCHON Architecture (living document)
 
-This records the architectural decisions that are **implemented** as of Phase 2, plus the
+This records the architectural decisions that are **implemented** as of Phase 3, plus the
 contracts later phases must honour. It is the source of truth the spec demands (§8, §9,
 §60). Sections marked _(declared)_ are fixed decisions whose code lands in a later phase.
 
@@ -39,10 +39,12 @@ contracts later phases must honour. It is the source of truth the spec demands (
 | Package | Responsibility |
 |---|---|
 | `config` | All tunables (env-overridable). `Settings`, `RepositoryLimits`. |
-| `core` | `ids` (ULID), `errors` (taxonomy), `logging` (structured + secret redaction), `versions` (engine-version registry). |
+| `core` | `ids` (ULID), `errors` (taxonomy), `logging` (structured + secret redaction), `versions` (engine-version registry), `artifacts` (fs artifact store). |
 | `domain` | Enums / value objects: `Classification`, `RunState`, `JobState`, `Stage`, `SupportLevel`, `RunMode`, `ProviderKind`. |
 | `db` | SQLAlchemy models, engine/session, `migrate` (programmatic Alembic). |
 | `analysis/source` | Phase 2 - `ast`-based extractor: components, dependencies, complexity, entry points, resolution. |
+| `analysis/graph` | Phase 3 - NetworkX component + module graphs; derives `DEPENDS_ON` / `TESTED_BY`; cycle detection. |
+| `analysis/architecture` | Phase 3 - role inference (`roles.v1`) + coupling/centrality metrics + layering check + graph artifact. |
 | `providers/repo` | `RepositoryProvider` ABC, `LocalRepositoryProvider`, `GitHubRepositoryProvider`, `gitcli` safe wrapper. |
 | `workspace` | `WorkspaceManager` — disposable, quota-checked, path-traversal-safe checkout dirs. |
 | `jobs` | `state_machine`, `manager` (DB queue), `worker` (loop). |
@@ -66,8 +68,15 @@ analysis-output row carries `run_id`; snapshots are immutable once written.
 | `analysis_artifacts` | Pointers to large/generated files (fs/object, not inline). | `run_id`, `kind`, `storage`, `ref`, `sha256`, `size_bytes` |
 | `evidence` | Central conclusion record (§4). | `run_id`, `stage`, `classification`, `summary`, `detail`, `source_path/line`, `confidence`, `produced_by`, `refs` |
 | `jobs` | Background unit of work. | `run_id` (unique), `state`, `priority`, `attempts`/`max_attempts`, `idempotency_key` (unique), `dedupe_key`, `heartbeat_at`, `cancel_requested`, `error` |
-| `components` _(0002, Phase 2)_ | A source entity (file/module/class/function/method). Keyed to the **snapshot** so extraction is reused across runs. | `snapshot_id`, `parent_id` (CONTAINS tree), `kind`, `name`, `qualified_name`, `path`, `start_line`/`end_line`, `metrics`, `attributes`, `is_test`/`is_entrypoint`/`is_config`, `role` (Phase 3) |
-| `dependencies` _(0002, Phase 2)_ | A directed edge between components. | `snapshot_id`, `src_component_id`, `dst_component_id` (null = unresolved), `kind` (CONTAINS/IMPORTS/CALLS/INHERITS), `target_name`, `resolved`, `external`, `source_line`, `attributes` |
+| `components` _(0002, Phase 2)_ | A source entity (file/module/class/function/method). Keyed to the **snapshot** so extraction is reused across runs. | `snapshot_id`, `parent_id` (CONTAINS tree), `kind`, `name`, `qualified_name`, `path`, `start_line`/`end_line`, `metrics` (Phase 3 adds `metrics.architecture`), `attributes`, `is_test`/`is_entrypoint`/`is_config`, `role` (set in Phase 3) |
+| `dependencies` _(0002; 0003 widens `kind`)_ | A directed edge between components / modules. | `snapshot_id`, `src_component_id`, `dst_component_id` (null = unresolved), `kind`, `target_name`, `resolved`, `external`, `source_line`, `attributes` |
+
+`dependencies.kind` is a plain `VARCHAR` via the `EnumString` type decorator
+(`db/types.py`), not a DB `CHECK` — the `DependencyKind` vocabulary grows every phase
+(Phase 2: CONTAINS/IMPORTS/CALLS/INHERITS; Phase 3: DEPENDS_ON/TESTED_BY; Phase 4+:
+CHANGED_BY/CHANGED_WITH/FAILED_IN/FIXED_BY/AFFECTS) and validation happens at the app
+boundary. Migration `0003` drops+recreates the (fully derived) `dependencies` table to
+apply the widening.
 
 Later phases add `commits`, `risk_assessments`, `legacy_dna`, … as incremental migrations
 on this baseline.
@@ -102,9 +111,10 @@ COMPLETED / FAILED / CANCELLED are terminal (no outgoing edges).
 | mode | executed stages |
 |---|---|
 | `INGEST_ONLY` | INGESTING → SNAPSHOTTING |
-| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE _(+ later phases)_ |
+| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE _(+ later phases)_ |
 
-Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**.
+Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**,
+**BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**.
 
 Phase 1 executes the `INGESTING` and `SNAPSHOTTING` prefix and then completes the run in
 `INGEST_ONLY` mode. Analysis stages will _degrade and continue_ on failure (recording a
@@ -234,7 +244,50 @@ analysis". Syntax errors, oversize files and a file-count breach are recorded as
 
 ---
 
-## 9. Sandbox threat model — _(declared; implemented Phase 7)_
+## 9. Architecture reconstruction (Phase 3, §23)
+
+Two stages turn the flat component model into an architecture. Both are deterministic and
+cached on the snapshot (roles + `metrics.architecture` live on `Component`).
+
+**`BUILDING_GRAPH`** (`analysis/graph/`)
+
+* `build_component_graph` - a `nx.MultiDiGraph` of every component + resolved dependency.
+* `build_module_graph` - collapses to a `nx.DiGraph` of MODULE nodes: module A → module B
+  when any component of A has a resolved IMPORTS/CALLS/INHERITS edge into B (internal
+  only); edge `weight` = contributing count, `kinds` = which kinds contributed.
+* `derive_edges` (idempotent per snapshot) persists **`DEPENDS_ON`** (one per module-graph
+  edge) and **`TESTED_BY`** (for a test module T depending on non-test module M → `M → T`).
+* `find_cycles` - `strongly_connected_components` + `simple_cycles` (capped at 50) + self
+  loops; import cycles are emitted as `INFERENCE` evidence.
+
+**`RECONSTRUCTING_ARCHITECTURE`** (`analysis/architecture/`)
+
+* `roles.py` (`roles.v1`) - an explicit ordered decision procedure assigning one role per
+  module: `test → config → entrypoint → api → cli → model → io → util → domain → unknown`.
+  Signals: the `is_test` / `is_entrypoint` flags, name/path tokens, imported top-level
+  roots, function/method decorators, and the class-vs-function mix. Keyword lists live in
+  the module. The module's role is mirrored onto its FILE/CLASS/FUNCTION/METHOD
+  descendants; recognised config files get `role="config"`.
+* `metrics.py` (`arch_metrics.v1`) - per module: `fan_in`, `fan_out`,
+  `instability = fan_out/(fan_in+fan_out)`, degree/betweenness centrality, PageRank
+  (pure-Python, no numpy), `in_cycle` / `scc_size`, and `dependents` / `dependencies`
+  name lists. Stored in `Component.metrics["architecture"]` for MODULE rows.
+* **Layering check** - conservative: flags an edge only when a lower layer
+  (`domain`/`model`/`io`/`util`/`config`) depends on `api`/`cli`/`entrypoint`, or a
+  non-test module depends on a test module. Violations are `INFERENCE` evidence.
+* **Artifact** - `core/artifacts.write_json` stores
+  `<artifact_root>/<run_id>/architecture_graph.json` (`schema: archon.graph.v1`:
+  node-link component + module graphs, roles, module metrics, cycles, violations) and
+  upserts one `analysis_artifacts` row with a sha256 + size.
+
+**API:** `GET /runs/{id}/architecture` (role histogram + module metrics + cycles +
+violations + top hubs), `GET /runs/{id}/architecture/graph` (the raw artifact),
+`GET /snapshots/{id}/modules` (MODULE rows with role + metrics; `role` / `in_cycle`
+filters). `GET /snapshots/{id}/dependencies` now also serves `DEPENDS_ON` / `TESTED_BY`.
+
+---
+
+## 10. Sandbox threat model — _(declared; implemented Phase 7)_
 
 All repository code, generated tests and generated patches are **UNTRUSTED** and will only
 ever run inside an ephemeral Docker container: non-root, `--read-only` rootfs + tmpfs
@@ -247,7 +300,7 @@ than silently drops.
 
 ---
 
-## 10. Scoring engines — _(declared; implemented Phases 5–9)_
+## 11. Scoring engines — _(declared; implemented Phases 5–9)_
 
 Legacy Risk, Change Safety, Hotspot, Repository Understanding and Patch Ranking will each
 be a versioned module under `archon/scoring/` with an explicit signal set, normalisation,

@@ -9,9 +9,10 @@ incidents, and recommends a safe modernization order.
 
 * Full plan: [`docs/ARCHON_IMPLEMENTATION_PLAN.md`](docs/ARCHON_IMPLEMENTATION_PLAN.md)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
-* Status: **Phases 1–2 complete** —
+* Status: **Phases 1–3 complete** —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
-  [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence)
+  [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
+  [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph)
 
 ## Quick start (local, SQLite)
 
@@ -23,7 +24,8 @@ python -m venv .venv
 cd backend
 ../.venv/Scripts/python -m archon.cli.main db-upgrade
 # ingest + Python source analysis (components, dependencies, complexity, entry points)
-../.venv/Scripts/python -m archon.cli.main analyze https://github.com/psf/requests --mode analysis_only --wait
+# ingest + source analysis + architecture reconstruction (roles, dependency graph, cycles)
+../.venv/Scripts/python -m archon.cli.main analyze https://github.com/psf/requests --mode full --wait
 ```
 
 Run the service + worker:
@@ -48,7 +50,7 @@ docker compose -f docker/docker-compose.yml up --build
 ## Tests
 
 ```bash
-cd backend && ../.venv/Scripts/python -m pytest        # 112 passing
+cd backend && ../.venv/Scripts/python -m pytest        # 149 passing
 ../.venv/Scripts/python -m ruff check archon tests alembic
 ```
 

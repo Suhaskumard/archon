@@ -121,3 +121,37 @@ class SourceSummaryOut(BaseModel):
     entrypoints: list[ComponentOut] = []
     tests: int = 0
     config_files: int = 0
+
+
+# --- Phase 3: architecture ---------------------------------------------------------
+
+
+class ModuleArchOut(BaseModel):
+    id: str
+    qualified_name: str
+    path: str
+    role: str | None
+    is_test: bool
+    is_entrypoint: bool
+    fan_in: int = 0
+    fan_out: int = 0
+    instability: float = 0.0
+    degree_centrality: float = 0.0
+    betweenness_centrality: float = 0.0
+    pagerank: float = 0.0
+    in_cycle: bool = False
+    scc_size: int = 1
+    dependents: list[str] = []
+    dependencies: list[str] = []
+
+
+class ArchitectureOut(BaseModel):
+    run_id: str
+    snapshot_id: str
+    reconstructed: bool
+    roles: dict[str, int]
+    modules: list[ModuleArchOut]
+    cycles: list[list[str]]
+    layering_violations: list[dict]
+    top_hubs: list[dict]
+    artifact_ref: str | None = None

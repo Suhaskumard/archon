@@ -15,6 +15,11 @@ ENGINE_VERSIONS: dict[str, str] = {
     # Phase 2 - source intelligence
     "source": "source.v1",
     "complexity": "complexity.v1",
+    # Phase 3 - architecture & dependency intelligence
+    "graph": "graph.v1",
+    "roles": "roles.v1",
+    "arch_metrics": "arch_metrics.v1",
+    "architecture": "architecture.v1",
 }
 
 

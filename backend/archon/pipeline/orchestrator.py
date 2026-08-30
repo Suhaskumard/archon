@@ -6,9 +6,11 @@ decided by ``run.mode`` (``_STAGE_PLANS``); every stage is idempotent (re-runnin
 first clears the rows it owns).
 
 Implemented stages:
-    INGESTING            validate + fetch metadata + secure clone into a fresh workspace
-    SNAPSHOTTING         classify support, persist an immutable RepositorySnapshot
-    ANALYZING_SOURCE     Python AST extraction -> components + dependencies (Phase 2)
+    INGESTING                  validate + fetch metadata + secure clone into a fresh workspace
+    SNAPSHOTTING               classify support, persist an immutable RepositorySnapshot
+    ANALYZING_SOURCE           Python AST extraction -> components + dependencies (Phase 2)
+    BUILDING_GRAPH             derive module DEPENDS_ON / TESTED_BY edges + cycle detection (Phase 3)
+    RECONSTRUCTING_ARCHITECTURE  role inference + coupling metrics + graph artifact (Phase 3)
 """
 
 from __future__ import annotations
@@ -19,6 +21,8 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from archon.analysis.architecture.reconstruct import reconstruct_architecture
+from archon.analysis.graph.derive import derive_edges
 from archon.analysis.source.persist import analyze_source
 from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
@@ -33,10 +37,17 @@ from archon.workspace.manager import Workspace, WorkspaceManager
 
 log = get_logger("archon.pipeline")
 
+_ANALYSIS_STAGES = (
+    Stage.INGESTING,
+    Stage.SNAPSHOTTING,
+    Stage.ANALYZING_SOURCE,
+    Stage.BUILDING_GRAPH,
+    Stage.RECONSTRUCTING_ARCHITECTURE,
+)
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
-    RunMode.ANALYSIS_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING, Stage.ANALYZING_SOURCE),
-    RunMode.FULL: (Stage.INGESTING, Stage.SNAPSHOTTING, Stage.ANALYZING_SOURCE),
+    RunMode.ANALYSIS_ONLY: _ANALYSIS_STAGES,
+    RunMode.FULL: _ANALYSIS_STAGES,
 }
 
 
@@ -52,6 +63,7 @@ class PipelineResult:
     support_level: str
     stages_completed: list[str]
     source: dict | None = None
+    architecture: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -81,6 +93,7 @@ class PipelineOrchestrator:
         clone_result = None
         snapshot: RepositorySnapshot | None = None
         source_summary: dict | None = None
+        architecture_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -97,6 +110,12 @@ class PipelineOrchestrator:
             elif stage is Stage.ANALYZING_SOURCE:
                 assert clone_result is not None and snapshot is not None
                 source_summary = self._source(session, run, snapshot, clone_result.workspace)
+            elif stage is Stage.BUILDING_GRAPH:
+                assert snapshot is not None
+                self._graph(session, run, snapshot)
+            elif stage is Stage.RECONSTRUCTING_ARCHITECTURE:
+                assert snapshot is not None
+                architecture_summary = self._architecture(session, run, snapshot)
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -118,6 +137,7 @@ class PipelineOrchestrator:
             support_level=snapshot.support_level.value,
             stages_completed=completed,
             source=source_summary,
+            architecture=architecture_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -223,6 +243,35 @@ class PipelineOrchestrator:
         summary = analyze_source(session, run, snapshot, repo_dir)
         log.info(
             "source stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _graph(self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot) -> None:
+        result = derive_edges(session, snapshot)
+        self._add_evidence(
+            session, run, Stage.BUILDING_GRAPH, Classification.FACT,
+            f"Module dependency graph: {result.module_graph.number_of_nodes()} modules, "
+            f"{result.depends_on_edges} DEPENDS_ON edges, {result.tested_by_edges} TESTED_BY edges",
+            produced_by="graph.v1",
+            refs={"depends_on": result.depends_on_edges, "tested_by": result.tested_by_edges,
+                  "cycles": len(result.cycles)},
+        )
+        if result.cycles:
+            listed = "; ".join(" -> ".join(c) for c in result.cycles[:10])
+            self._add_evidence(
+                session, run, Stage.BUILDING_GRAPH, Classification.INFERENCE,
+                f"{len(result.cycles)} import cycle(s) detected",
+                detail=listed, produced_by="graph.v1", confidence=1.0,
+                refs={"cycles": result.cycles},
+            )
+
+    def _architecture(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = reconstruct_architecture(session, run, snapshot)
+        log.info(
+            "architecture stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
         return summary.as_dict()

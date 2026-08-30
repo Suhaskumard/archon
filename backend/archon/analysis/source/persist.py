@@ -51,11 +51,18 @@ class SourceSummary:
 def analyze_source(
     session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, repo_dir: Path
 ) -> SourceSummary:
-    already = session.scalar(
+    have_components = session.scalar(
         select(func.count(Component.id)).where(Component.snapshot_id == snapshot.id)
     )
-    if already:
+    have_edges = session.scalar(
+        select(func.count(Dependency.id)).where(Dependency.snapshot_id == snapshot.id)
+    )
+    if have_components and have_edges:
         return _summary_from_db(session, run, snapshot, reused=True)
+    if have_components and not have_edges:
+        # e.g. after a migration that rebuilt the derived `dependencies` table
+        session.execute(delete(Component).where(Component.snapshot_id == snapshot.id))
+        session.flush()
 
     result = extract_repository(repo_dir)
     _write(session, run, snapshot, result)

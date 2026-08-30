@@ -28,6 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from archon.core.ids import new_id
 from archon.db.base import Base
+from archon.db.types import EnumString
 from archon.domain.enums import (
     Classification,
     ComponentKind,
@@ -277,7 +278,8 @@ class Dependency(Base, TimestampMixin):
     dst_component_id: Mapped[str | None] = mapped_column(
         ForeignKey("components.id", ondelete="CASCADE")
     )
-    kind: Mapped[DependencyKind] = mapped_column(_enum(DependencyKind), nullable=False)
+    # EnumString (plain VARCHAR): DependencyKind grows each phase - avoid CHECK migrations.
+    kind: Mapped[DependencyKind] = mapped_column(EnumString(DependencyKind), nullable=False)
     target_name: Mapped[str] = mapped_column(String(512), nullable=False)
     resolved: Mapped[bool] = mapped_column(default=False, nullable=False)
     external: Mapped[bool] = mapped_column(default=False, nullable=False)

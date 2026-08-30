@@ -83,6 +83,37 @@ export interface SourceSummary {
   config_files: number;
 }
 
+export interface ModuleArch {
+  id: string;
+  qualified_name: string;
+  path: string;
+  role: string | null;
+  is_test: boolean;
+  is_entrypoint: boolean;
+  fan_in: number;
+  fan_out: number;
+  instability: number;
+  degree_centrality: number;
+  betweenness_centrality: number;
+  pagerank: number;
+  in_cycle: boolean;
+  scc_size: number;
+  dependents: string[];
+  dependencies: string[];
+}
+
+export interface Architecture {
+  run_id: string;
+  snapshot_id: string;
+  reconstructed: boolean;
+  roles: Record<string, number>;
+  modules: ModuleArch[];
+  cycles: string[][];
+  layering_violations: Array<Record<string, unknown>>;
+  top_hubs: Array<Record<string, unknown>>;
+  artifact_ref: string | null;
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -114,4 +145,5 @@ export const api = {
   getRunSource: (runId: string) => req<SourceSummary>(`/runs/${runId}/source`),
   listComponents: (snapshotId: string, params = "") =>
     req<Component[]>(`/snapshots/${snapshotId}/components?limit=1000${params}`),
+  getArchitecture: (runId: string) => req<Architecture>(`/runs/${runId}/architecture`),
 };

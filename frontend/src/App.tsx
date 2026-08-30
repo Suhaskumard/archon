@@ -1,5 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Component, type Repository, type Run, type SourceSummary } from "./api";
+import {
+  api,
+  type Architecture,
+  type Component,
+  type ModuleArch,
+  type Repository,
+  type Run,
+  type SourceSummary,
+} from "./api";
+
+const ROLE_COLOR: Record<string, string> = {
+  api: "#5b9dff",
+  cli: "#8ab4f8",
+  entrypoint: "#c58af9",
+  domain: "#7ee0a2",
+  model: "#ffd479",
+  io: "#ff9d9d",
+  util: "#9aa4b2",
+  config: "#6ee7d6",
+  test: "#b0b8c4",
+  unknown: "#4a5160",
+};
 
 export function App() {
   const [runId, setRunId] = useState<string | null>(null);
@@ -221,6 +242,143 @@ function SourceIntel({ runId, snapshotId }: { runId: string; snapshotId: string 
   );
 }
 
+function ModuleGraphSvg({ arch }: { arch: Architecture }) {
+  const mods = arch.modules;
+  if (mods.length === 0) return null;
+  const size = 320;
+  const r = size / 2 - 34;
+  const cx = size / 2;
+  const cy = size / 2;
+  const pos = new Map<string, { x: number; y: number }>();
+  mods.forEach((m, i) => {
+    const a = (2 * Math.PI * i) / mods.length - Math.PI / 2;
+    pos.set(m.qualified_name, { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
+  });
+  const edges: Array<[string, string]> = [];
+  for (const m of mods) for (const dep of m.dependencies) edges.push([m.qualified_name, dep]);
+
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ maxWidth: "100%" }}>
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5a6472" />
+        </marker>
+      </defs>
+      {edges.map(([u, v], i) => {
+        const a = pos.get(u)!;
+        const b = pos.get(v)!;
+        return (
+          <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#3a4150" strokeWidth={1.2} markerEnd="url(#arr)" />
+        );
+      })}
+      {mods.map((m) => {
+        const p = pos.get(m.qualified_name)!;
+        const size2 = 5 + Math.min(m.fan_in + m.fan_out, 8);
+        return (
+          <g key={m.id}>
+            <circle cx={p.x} cy={p.y} r={size2} fill={ROLE_COLOR[m.role ?? "unknown"] ?? "#4a5160"} stroke={m.in_cycle ? "#ff5555" : "#0f1115"} strokeWidth={m.in_cycle ? 2 : 1} />
+            <text x={p.x} y={p.y - size2 - 4} textAnchor="middle" fontSize="9" fill="#9aa4b2">
+              {m.qualified_name.split(".").slice(-1)[0]}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function ArchitecturePanel({ runId }: { runId: string }) {
+  const [arch, setArch] = useState<Architecture | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .getArchitecture(runId)
+      .then((a) => live && setArch(a))
+      .catch((e) => live && setErr(e instanceof Error ? e.message : String(e)));
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+
+  if (err) return null; // architecture not reconstructed for this run (e.g. INGEST_ONLY)
+  if (!arch || !arch.reconstructed) return null;
+
+  const modules: ModuleArch[] = [...arch.modules].sort(
+    (a, b) => b.betweenness_centrality - a.betweenness_centrality || b.fan_in - a.fan_in,
+  );
+
+  return (
+    <>
+      <h2>Architecture</h2>
+      <div className="card">
+        <div className="row" style={{ gap: 12 }}>
+          {Object.entries(arch.roles).map(([role, n]) => (
+            <span key={role} className="pill" style={{ borderColor: ROLE_COLOR[role], color: ROLE_COLOR[role] }}>
+              {role} · {n}
+            </span>
+          ))}
+        </div>
+        <div className="row" style={{ alignItems: "flex-start", gap: 20, marginTop: 10 }}>
+          <ModuleGraphSvg arch={arch} />
+          <div style={{ flex: 1, minWidth: 320 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Module</th>
+                  <th>Role</th>
+                  <th title="fan-in">in</th>
+                  <th title="fan-out">out</th>
+                  <th title="instability">I</th>
+                  <th title="betweenness">btw</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modules.map((m) => (
+                  <tr key={m.id}>
+                    <td>
+                      {m.qualified_name}
+                      {m.in_cycle && <span className="err"> ⟳</span>}
+                    </td>
+                    <td>
+                      <span className="pill" style={{ borderColor: ROLE_COLOR[m.role ?? "unknown"], color: ROLE_COLOR[m.role ?? "unknown"] }}>
+                        {m.role}
+                      </span>
+                    </td>
+                    <td>{m.fan_in}</td>
+                    <td>{m.fan_out}</td>
+                    <td className="meta">{m.instability.toFixed(2)}</td>
+                    <td className="meta">{m.betweenness_centrality.toFixed(3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {arch.cycles.length > 0 && (
+          <div className="err" style={{ marginTop: 8 }}>
+            Import cycles: {arch.cycles.map((c) => c.join(" → ")).join("  |  ")}
+          </div>
+        )}
+        {arch.layering_violations.length > 0 && (
+          <div className="err" style={{ marginTop: 8 }}>
+            Layering violations:{" "}
+            {arch.layering_violations
+              .map((v) => `${v.from} → ${v.to} (${v.reason})`)
+              .join("; ")}
+          </div>
+        )}
+        {arch.cycles.length === 0 && arch.layering_violations.length === 0 && (
+          <div className="meta" style={{ marginTop: 8 }}>
+            No import cycles or layering violations detected.
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -296,7 +454,10 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
           )}
 
           {run.state === "COMPLETED" && run.snapshot_id && (
-            <SourceIntel runId={run.id} snapshotId={run.snapshot_id} />
+            <>
+              <SourceIntel runId={run.id} snapshotId={run.snapshot_id} />
+              <ArchitecturePanel runId={run.id} />
+            </>
           )}
 
           <h2>Evidence</h2>
