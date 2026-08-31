@@ -330,3 +330,36 @@ class ChangeImpactOut(BaseModel):
     historical_co_changes: list[dict]
     external_integrations: list[dict]
     potential_impact: dict
+
+
+# --- Phase 7: execution --------------------------------------------------------------
+
+
+class TestCaseOut(BaseModel):
+    id: str
+    component_id: str | None
+    kind: str
+    path: str
+    name: str
+    origin: str
+    validated: bool
+    validation_errors: list | None = None
+
+
+class ExecutionOut(BaseModel):
+    id: str
+    kind: str
+    command: list[str]
+    exit_code: int | None
+    passed: int
+    failed: int
+    errors: int
+    timed_out: bool
+    duration_ms: int
+    stdout_preview: str
+    stderr_preview: str
+    stdout_ref: str | None
+    stderr_ref: str | None
+    coverage_ref: str | None
+    started_at: datetime | None
+    ended_at: datetime | None

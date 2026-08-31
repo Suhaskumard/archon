@@ -261,6 +261,36 @@ export interface ChangeImpact {
   };
 }
 
+export interface TestCase {
+  id: string;
+  component_id: string | null;
+  kind: string;
+  path: string;
+  name: string;
+  origin: string;
+  validated: boolean;
+  validation_errors: unknown[] | null;
+}
+
+export interface Execution {
+  id: string;
+  kind: string;
+  command: string[];
+  exit_code: number | null;
+  passed: number;
+  failed: number;
+  errors: number;
+  timed_out: boolean;
+  duration_ms: number;
+  stdout_preview: string;
+  stderr_preview: string;
+  stdout_ref: string | null;
+  stderr_ref: string | null;
+  coverage_ref: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -306,4 +336,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ component_id: componentId }),
     }),
+  getTests: (runId: string) => req<TestCase[]>(`/runs/${runId}/tests`),
+  getExecutions: (runId: string) => req<Execution[]>(`/runs/${runId}/executions`),
 };

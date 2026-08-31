@@ -128,6 +128,43 @@ class TechDebtSeverity(str, enum.Enum):
     CRITICAL = "CRITICAL"
 
 
+class TestCaseKind(str, enum.Enum):
+    """Kind of test case (spec section 33). Only EXISTING is populated in Phase 7;
+    the rest are declared now for the vocabulary Phase 8's characterization/generation
+    will populate."""
+
+    EXISTING = "EXISTING"
+    CHARACTERIZATION = "CHARACTERIZATION"
+    UNIT = "UNIT"
+    BOUNDARY = "BOUNDARY"
+    INVALID_INPUT = "INVALID_INPUT"
+    EXCEPTION = "EXCEPTION"
+    REGRESSION = "REGRESSION"
+    INTEGRATION = "INTEGRATION"
+
+
+class TestCaseOrigin(str, enum.Enum):
+    """Where a test case came from (spec section 33)."""
+
+    DISCOVERED = "DISCOVERED"
+    AI = "AI"
+    CHARACTERIZATION = "CHARACTERIZATION"
+
+
+class ExecutionKind(str, enum.Enum):
+    """What a sandbox execution ran (spec sections 12, 33, 36, 39, 41).
+
+    Only EXISTING_TESTS is produced in Phase 7; the rest are declared now for Phases
+    8-9 (characterization, generated tests, patch verification, regression).
+    """
+
+    EXISTING_TESTS = "EXISTING_TESTS"
+    CHARACTERIZATION = "CHARACTERIZATION"
+    GENERATED_TESTS = "GENERATED_TESTS"
+    PATCH_VERIFICATION = "PATCH_VERIFICATION"
+    REGRESSION = "REGRESSION"
+
+
 class SupportLevel(str, enum.Enum):
     """MVP supported-repository contract (spec section 17)."""
 

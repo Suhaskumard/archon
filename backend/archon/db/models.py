@@ -34,6 +34,7 @@ from archon.domain.enums import (
     Classification,
     ComponentKind,
     DependencyKind,
+    ExecutionKind,
     HotspotClassification,
     JobState,
     JobType,
@@ -45,6 +46,8 @@ from archon.domain.enums import (
     SupportLevel,
     TechDebtCategory,
     TechDebtSeverity,
+    TestCaseKind,
+    TestCaseOrigin,
 )
 
 
@@ -594,6 +597,76 @@ class ChangeImpact(Base, TimestampMixin):
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class TestCase(Base, TimestampMixin):
+    """A test case, discovered or generated (spec section 33).
+
+    Only ``TestCaseKind.EXISTING`` / ``TestCaseOrigin.DISCOVERED`` are produced in
+    Phase 7 - the rest of the vocabulary is declared for Phase 8.
+    """
+
+    __tablename__ = "test_cases"
+    __table_args__ = (
+        Index("ix_test_case_run_kind", "run_id", "kind"),
+        Index("ix_test_case_component", "component_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("tc"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str | None] = mapped_column(
+        ForeignKey("components.id", ondelete="SET NULL"), index=True
+    )
+    kind: Mapped[TestCaseKind] = mapped_column(_enum(TestCaseKind), nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    body_ref: Mapped[str | None] = mapped_column(Text)
+    origin: Mapped[TestCaseOrigin] = mapped_column(_enum(TestCaseOrigin), nullable=False)
+    validated: Mapped[bool] = mapped_column(default=False, nullable=False)
+    validation_errors: Mapped[list | None] = mapped_column(JSON)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class Execution(Base, TimestampMixin):
+    """One sandboxed run of a test suite (spec sections 12, 33, 36, 39, 41).
+
+    ``kind`` is a plain VARCHAR (``EnumString``), not a DB CHECK - it grows every phase
+    the same way ``Dependency.kind`` does (only EXISTING_TESTS this phase).
+    """
+
+    __tablename__ = "executions"
+    __table_args__ = (Index("ix_execution_run_kind", "run_id", "kind"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("xrun"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[ExecutionKind] = mapped_column(EnumString(ExecutionKind), nullable=False)
+    sandbox_ref: Mapped[str | None] = mapped_column(String(128))
+    command: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    exit_code: Mapped[int | None] = mapped_column(Integer)
+    passed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    errors: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    timed_out: Mapped[bool] = mapped_column(default=False, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    stdout_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    stderr_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    coverage_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
@@ -605,6 +678,7 @@ __all__ = [
     "Component",
     "Dependency",
     "Evidence",
+    "Execution",
     "Hotspot",
     "Job",
     "LegacyDNA",
@@ -612,4 +686,5 @@ __all__ = [
     "RepositorySnapshot",
     "RiskAssessment",
     "TechnicalDebtFinding",
+    "TestCase",
 ]

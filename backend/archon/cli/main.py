@@ -46,6 +46,17 @@ def worker(max_iterations: int | None = typer.Option(None, help="stop after N lo
 
 
 @app.command()
+def reap() -> None:
+    """Remove orphaned workspaces and sandbox containers left by a crashed worker."""
+    from archon.sandbox.reaper import reap_orphan_containers
+    from archon.workspace.manager import WorkspaceManager
+
+    removed_ws = WorkspaceManager().reap_orphans()
+    removed_containers = reap_orphan_containers()
+    typer.echo(f"removed {removed_ws} workspace(s), {removed_containers} container(s)")
+
+
+@app.command()
 def analyze(
     target: str = typer.Argument(..., help="github.com URL, owner/repo, or local path"),
     ref: str | None = typer.Option(None, help="branch, tag or commit sha"),

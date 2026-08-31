@@ -9,13 +9,14 @@ incidents, and recommends a safe modernization order.
 
 * Full plan: [`docs/ARCHON_IMPLEMENTATION_PLAN.md`](docs/ARCHON_IMPLEMENTATION_PLAN.md)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
-* Status: **Phases 1–6 complete** —
+* Status: **Phases 1–7 complete** —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
   [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
   [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph) ·
   [Phase 4](docs/PHASE_4_COMPLETION.md) (git archaeology, hidden assumptions, mock AI) ·
   [Phase 5](docs/PHASE_5_COMPLETION.md) (legacy risk, hotspots, tech debt, repository understanding) ·
-  [Phase 6](docs/PHASE_6_COMPLETION.md) (change safety, change impact)
+  [Phase 6](docs/PHASE_6_COMPLETION.md) (change safety, change impact) ·
+  [Phase 7](docs/PHASE_7_COMPLETION.md) (Docker sandbox, secure test execution)
 
 ## Quick start (local, SQLite)
 
@@ -53,7 +54,8 @@ docker compose -f docker/docker-compose.yml up --build
 ## Tests
 
 ```bash
-cd backend && ../.venv/Scripts/python -m pytest        # 262 passing
+make sandbox-image                                     # build the Docker sandbox image once (Phase 7)
+cd backend && ../.venv/Scripts/python -m pytest        # 284 passing (sandbox tests skip cleanly if Docker/the image is missing)
 ../.venv/Scripts/python -m ruff check archon tests alembic
 ```
 

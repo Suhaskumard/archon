@@ -7,7 +7,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from archon import __version__
-from archon.api.routers import archaeology, architecture, repositories, runs, scoring, source
+from archon.api.routers import (
+    archaeology,
+    architecture,
+    execution,
+    repositories,
+    runs,
+    scoring,
+    source,
+)
 from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.logging import configure_logging, get_logger
@@ -73,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(architecture.router)
     app.include_router(archaeology.router)
     app.include_router(scoring.router)
+    app.include_router(execution.router)
     return app
 
 

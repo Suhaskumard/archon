@@ -38,6 +38,7 @@ class Worker:
             signal.signal(signal.SIGTERM, self.request_stop)
         except (ValueError, AttributeError):  # pragma: no cover - non-main thread / windows
             pass
+        self._reap_orphans()
         log.info("worker started")
         iterations = 0
         while not self._stop:
@@ -48,6 +49,21 @@ class Worker:
             if not worked:
                 time.sleep(settings.worker_poll_interval_seconds)
         log.info("worker stopped")
+
+    @staticmethod
+    def _reap_orphans() -> None:
+        """Best-effort cleanup of anything a crashed prior worker left behind."""
+        from archon.sandbox.reaper import reap_orphan_containers
+        from archon.workspace.manager import WorkspaceManager
+
+        try:
+            WorkspaceManager().reap_orphans()
+        except Exception:  # pragma: no cover - startup hygiene only, never fatal
+            log.exception("workspace reap failed")
+        try:
+            reap_orphan_containers()
+        except Exception:  # pragma: no cover - docker may be unavailable; never fatal
+            log.exception("sandbox container reap failed")
 
     def tick(self) -> bool:
         """Process at most one job. Returns True if a job was handled."""

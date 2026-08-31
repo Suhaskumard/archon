@@ -33,6 +33,18 @@ class RepositoryLimits(BaseSettings):
     clone_depth: int = 0  # 0 == full history (bounded later by max_git_history_commits)
 
 
+class SandboxSettings(BaseSettings):
+    """Docker sandbox tunables (spec sections 12, 36)."""
+
+    model_config = SettingsConfigDict(env_prefix="ARCHON_SANDBOX_")
+
+    image: str = "archon-sandbox:latest"
+    cpu_limit: float = 1.0
+    memory_mb: int = 512
+    pids_limit: int = 128
+    docker_host: str | None = None  # maps to DOCKER_HOST if set; None = default context
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ARCHON_",
@@ -72,6 +84,7 @@ class Settings(BaseSettings):
     ai_max_components_per_run: int = 40  # archaeology: top-K by churn * complexity
 
     limits: RepositoryLimits = Field(default_factory=RepositoryLimits)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
 
     @property
     def resolved_workspace_root(self) -> Path:

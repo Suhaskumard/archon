@@ -36,6 +36,11 @@ ENGINE_VERSIONS: dict[str, str] = {
     # Phase 6 - change safety & change impact
     "change_safety": "change_safety.v1",
     "change_impact": "change_impact.v1",
+    # Phase 7 - secure execution / sandbox
+    "test_discovery": "test_discovery.v1",
+    "execution": "execution.v1",
+    "characterization": "characterization.v0",  # declared, not implemented until Phase 8
+    "test_generation": "test_generation.v0",  # declared, not implemented until Phase 8
 }
 
 

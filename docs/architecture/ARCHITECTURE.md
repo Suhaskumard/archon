@@ -48,6 +48,9 @@ contracts later phases must honour. It is the source of truth the spec demands (
 | `analysis/architecture` | Phase 3 - role inference (`roles.v1`) + coupling/centrality metrics + layering check + graph artifact. |
 | `analysis/archaeology` | Phase 4 - deterministic behaviour facts + hidden-assumption heuristics + the first AI step. |
 | `analysis/scoring` | Phase 5 - Legacy Risk, Hotspot, Repository Understanding, tech-debt detectors. Phase 6 - Change Safety, Change Impact. |
+| `sandbox` | Phase 7 - `Sandbox` ABC, `DockerSandbox`, container reaper. |
+| `testing` | Phase 7 - existing-test discovery (`discovery.py`). Coverage/gaps/characterization/generation are Phase 8. |
+| `execution` | Phase 7 - runs a test suite through the sandbox, persists `Execution` + artifacts. |
 | `providers/repo` | `RepositoryProvider` ABC, `LocalRepositoryProvider`, `GitHubRepositoryProvider`, `gitcli` safe wrapper. |
 | `providers/ai` | Phase 4 - `AIProvider` ABC + validation pipeline, `MockAIProvider` (deterministic, offline), `get_ai_provider()`. |
 | `workspace` | `WorkspaceManager` — disposable, quota-checked, path-traversal-safe checkout dirs. |
@@ -83,6 +86,8 @@ analysis-output row carries `run_id`; snapshots are immutable once written.
 | `hotspots` _(0005, Phase 5)_ | Hotspot classification per component. | `run_id`, `snapshot_id`, `component_id` (unique per run), `score`, `classification`, `reasons` (JSON), `evidence_ids`, `engine_version` |
 | `change_assessments` _(0006, Phase 6)_ | Change Safety score per component - standalone, not a `RiskAssessment` row (incompatible category vocabulary, see §14). | `run_id`, `snapshot_id`, `component_id`, `engine_version`, `safety_score`, `risk_category`, `factor_breakdown` (JSON), `recommended_preparation` (JSON list), `confidence`, `evidence_ids`, `produced_by` |
 | `change_impacts` _(0006, Phase 6)_ | Change Impact traversal result per component - factual, not scored (no `confidence`/`evidence_ids`). | `run_id`, `snapshot_id`, `component_id` (unique per run), `direct_dependents`/`indirect_dependents`/`callers`/`related_tests`/`historical_co_changes`/`external_integrations` (JSON lists), `potential_impact` (JSON dict), `engine_version` |
+| `test_cases` _(0007, Phase 7)_ | A test case, discovered or generated. Only `kind=EXISTING`/`origin=DISCOVERED` are produced this phase. | `run_id`, `snapshot_id`, `component_id` (nullable), `kind`, `path`, `name`, `body_ref`, `origin`, `validated`, `validation_errors` |
+| `executions` _(0007, Phase 7)_ | One sandboxed run of a test suite. `kind` is `EnumString` (grows every later phase, like `Dependency.kind`). | `run_id`, `kind`, `sandbox_ref`, `command` (JSON), `exit_code`, `passed`/`failed`/`errors`, `timed_out`, `duration_ms`, `stdout_ref`/`stderr_ref`/`coverage_ref` (→ `analysis_artifacts.id`), `started_at`, `ended_at` |
 
 `dependencies.kind` is a plain `VARCHAR` via the `EnumString` type decorator
 (`db/types.py`), not a DB `CHECK` — the `DependencyKind` vocabulary grows every phase
@@ -124,12 +129,13 @@ COMPLETED / FAILED / CANCELLED are terminal (no outgoing edges).
 | mode | executed stages |
 |---|---|
 | `INGEST_ONLY` | INGESTING → SNAPSHOTTING |
-| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING → SCORING_UNDERSTANDING → BUILDING_LEGACY_DNA → ANALYZING_TECH_DEBT → SCORING_HOTSPOTS → ASSESSING_CHANGE_SAFETY → ANALYZING_CHANGE_IMPACT _(+ later phases)_ |
+| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING → SCORING_UNDERSTANDING → BUILDING_LEGACY_DNA → ANALYZING_TECH_DEBT → SCORING_HOTSPOTS → ASSESSING_CHANGE_SAFETY → ANALYZING_CHANGE_IMPACT → ANALYZING_TESTS → CHARACTERIZING → GENERATING_TESTS → EXECUTING _(+ later phases)_ |
 
 Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**,
 **ANALYZING_GIT**, **BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**, **ARCHAEOLOGIZING**,
 **SCORING_UNDERSTANDING**, **BUILDING_LEGACY_DNA**, **ANALYZING_TECH_DEBT**,
-**SCORING_HOTSPOTS**, **ASSESSING_CHANGE_SAFETY**, **ANALYZING_CHANGE_IMPACT**.
+**SCORING_HOTSPOTS**, **ASSESSING_CHANGE_SAFETY**, **ANALYZING_CHANGE_IMPACT**,
+**ANALYZING_TESTS**, **CHARACTERIZING** (stub), **GENERATING_TESTS** (stub), **EXECUTING**.
 Tests read the last stage via `tests/conftest.terminal_stage(mode)` instead of pinning a
 literal, so a new phase no longer ripples through every test.
 
@@ -365,16 +371,14 @@ churn, top co-change), `GET /snapshots/{id}/commits`, `GET /components/{id}/hist
 
 ---
 
-## 11. Sandbox threat model — _(declared; implemented Phase 7)_
+## 11. Sandbox threat model — implemented Phase 7 (§15); static-diff scanning declared
 
-All repository code, generated tests and generated patches are **UNTRUSTED** and will only
-ever run inside an ephemeral Docker container: non-root, `--read-only` rootfs + tmpfs
-work dir, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--network=none` by
-default, `--cpus` / `--memory` (== `--memory-swap`) / `--pids-limit` / wall-clock kill,
-empty environment (no ARCHON/Anthropic/GitHub secret ever passed in), `--rm` + a reaper
-for orphans. A `Sandbox` ABC keeps room for a non-Docker driver. Static scanning of
-generated diffs/tests happens *before* anything reaches the sandbox and *flags* rather
-than silently drops.
+All repository code, generated tests and generated patches are **UNTRUSTED**. The Docker
+sandbox itself (non-root, read-only rootfs, network isolation, resource limits, empty
+environment, reaper) is implemented in Phase 7 - see §15 for the full detail. Static
+scanning of *generated* diffs/tests (AI-produced patches, Phase 9) remains declared-only:
+nothing is AI-generated yet in Phases 1-7, so there is nothing to scan - it will *flag*
+rather than silently drop, same as every other degrade-not-silently-fail rule in this doc.
 
 ---
 
@@ -511,3 +515,59 @@ recompute, and the on-demand path only ever checks the current run's own rows.
 
 **API:** `GET /runs/{id}/change-safety` (ascending by score - least-safe first),
 `POST /runs/{id}/change-impact`. **Frontend:** Change Safety, Change Impact.
+
+---
+
+## 15. Secure execution / sandbox (Phase 7, §12, §36)
+
+`archon/sandbox/` implements the threat model from §11 for real: `Sandbox` (ABC) +
+`DockerSandbox`, shelling out to the `docker` CLI with argument lists (mirroring
+`gitcli.py`'s safety conventions) rather than adding the `docker` Python SDK.
+
+**`docker create` flags implementing every threat-model requirement**: `--user 1000:1000`,
+`--read-only`, `--tmpfs /work:rw,uid=1000,gid=1000,size=128m` + `--tmpfs /tmp:...`,
+`--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--network=none` by default,
+`--cpus`/`--memory`==`--memory-swap`/`--pids-limit`, `--label archon.managed=true` (for
+the reaper), empty environment (no `-e` flags at all - only the image's own `ENV`, which
+sets none). Deliberately **not** `--ulimit nproc`: it is a per-real-UID kernel limit
+shared across *every* container using that UID on the host, not a per-container control
+- on a host already running other containers as uid 1000, a low nproc ulimit starved
+unrelated containers before the sandboxed one even started. `--pids-limit` (a genuine
+per-container cgroup control) is the correct and sufficient fork-bomb containment.
+
+**Copy-in/copy-out uses `docker exec` + `tar`, never `docker cp`.** Empirically,
+`docker cp` cannot see into tmpfs-mounted paths in either direction (it reads the
+storage driver's layer diff, which tmpfs never joins), and separately refuses to write
+into any `--read-only` container regardless of which mount the target path resolves to.
+The workaround: the container's main process is a `sleep` placeholder (tmpfs mounts
+aren't attached until `docker start`, so `docker cp` can't populate them pre-start
+either); once running, the workspace is piped in as a tar stream via
+`docker exec -i <id> sh -c 'tar -xf - -C /work'`, and results are piped out the same way
+(`docker exec <id> tar -cf - -C /work/out .`). The real command's stdout/stderr are
+redirected to files inside `/work` (not captured from the `docker exec` client) so they
+survive even when the wall-clock timeout has to `docker kill` the container.
+
+**Reaching `EXECUTING`.** `Stage`/`STAGE_ORDER` fix
+`ANALYZING_TESTS → CHARACTERIZING → GENERATING_TESTS → EXECUTING` right after Phase 6's
+stages. `ANALYZING_TESTS` does real, cheap work (`archon/testing/discovery.py`): a test
+function is identified by its owning MODULE being flagged `is_test` (Phase 2 never sets
+that flag on the FUNCTION/METHOD rows themselves) plus its own `test_`-prefixed name;
+each becomes one `TestCase(kind=EXISTING, origin=DISCOVERED)` row. `CHARACTERIZING` and
+`GENERATING_TESTS` are honest stubs this phase (Phase 8's job) - each records exactly
+one `INFERENCE` Evidence row noting the deferral, no table writes, directly in the
+orchestrator (no placeholder module files). `EXECUTING`
+(`archon/execution/runner.py::run_existing_tests`) builds one
+`pytest -q --tb=short --junit-xml=... --cov=. --cov-report=xml:...` `ExecutionSpec`,
+runs it through `DockerSandbox`, and persists one `Execution(kind=EXISTING_TESTS)` row
+plus stdout/stderr/coverage/junit text artifacts (`core/artifacts.write_text`, a
+non-JSON sibling of `write_json`) - `coverage.xml`/`junit.xml` are captured but not yet
+parsed (Phase 8's job for test-gap analysis).
+
+**Scope cuts**: the opt-in egress-filtered dependency-install phase is declared on
+`ExecutionSpec.allow_install` but raises if requested - no fixture needs installed
+third-party dependencies at sandbox-run time yet. `ExecutionKind` is a plain `VARCHAR`
+(`EnumString`, like `Dependency.kind`) since it grows every later phase
+(characterization, generated tests, patch verification, regression).
+
+**API:** `GET /runs/{id}/tests`, `GET /runs/{id}/executions` (capped stdout/stderr
+preview + artifact refs for the full text). **Frontend:** Test Execution.

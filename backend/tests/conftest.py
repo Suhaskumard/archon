@@ -59,6 +59,14 @@ def scoring_repo(tmp_path_factory) -> Path:
 
 
 @pytest.fixture
+def malicious_repo(tmp_path_factory) -> Path:
+    from tests.fixtures.malicious.build_malicious_repo import build_malicious_repo
+
+    dest = tmp_path_factory.mktemp("malicious_fixture")
+    return build_malicious_repo(dest)
+
+
+@pytest.fixture
 def client():
     from fastapi.testclient import TestClient
 
@@ -66,6 +74,38 @@ def client():
 
     with TestClient(create_app()) as c:
         yield c
+
+
+@pytest.fixture(scope="session")
+def sandbox_image_available() -> bool:
+    """Skip Docker-dependent tests with a clear message if the daemon or the
+    ``archon-sandbox`` image isn't available - the image is built once by hand
+    (``make sandbox-image``), never by the test suite itself."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["docker", "image", "inspect", "archon-sandbox:latest"],
+            capture_output=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pytest.skip("docker is not available")
+    if proc.returncode != 0:
+        pytest.skip("archon-sandbox:latest image not built - run `make sandbox-image`")
+    return True
+
+
+@pytest.fixture
+def sandbox_workspace(sandbox_image_available):
+    """A throwaway Workspace with an empty `repo/` dir, for sandbox tests that don't
+    need a real git checkout - just something to copy in."""
+    from archon.workspace.manager import WorkspaceManager
+
+    wm = WorkspaceManager()
+    ws = wm.create("sbtest")
+    ws.resolve_within("repo").mkdir(parents=True, exist_ok=True)
+    yield ws
+    wm.cleanup(ws)
 
 
 @pytest.fixture

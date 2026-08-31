@@ -6,6 +6,7 @@ from archon.domain.enums import (
     ComponentKind,
     Confidence,
     DependencyKind,
+    ExecutionKind,
     HotspotClassification,
     JobState,
     JobType,
@@ -18,6 +19,8 @@ from archon.domain.enums import (
     SupportLevel,
     TechDebtCategory,
     TechDebtSeverity,
+    TestCaseKind,
+    TestCaseOrigin,
 )
 
 __all__ = [
@@ -26,6 +29,7 @@ __all__ = [
     "ComponentKind",
     "Confidence",
     "DependencyKind",
+    "ExecutionKind",
     "HotspotClassification",
     "JobState",
     "JobType",
@@ -38,4 +42,6 @@ __all__ = [
     "SupportLevel",
     "TechDebtCategory",
     "TechDebtSeverity",
+    "TestCaseKind",
+    "TestCaseOrigin",
 ]

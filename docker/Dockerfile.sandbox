@@ -1,0 +1,12 @@
+# ARCHON sandbox image (spec sections 12, 36).
+# Runs untrusted repository code. Non-root, no ARCHON source, no secrets - only pytest +
+# coverage (ARCHON-side tooling) are baked in. The command to run is supplied per
+# `docker create`; the target repo's snapshot is copied into /work at container-create
+# time by DockerSandbox (never bind-mounted).
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir pytest==8.* pytest-cov==5.* coverage==7.*
+
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin sandboxuser
+USER sandboxuser
+WORKDIR /work

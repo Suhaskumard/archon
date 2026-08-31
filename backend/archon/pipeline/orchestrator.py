@@ -19,6 +19,10 @@ Implemented stages:
     SCORING_HOTSPOTS           Hotspot score combining Legacy DNA + tech debt (Phase 5)
     ASSESSING_CHANGE_SAFETY    Change Safety score from coupling/centrality/callers/etc (Phase 6)
     ANALYZING_CHANGE_IMPACT    dependents/callers/tests/co-changes per module (Phase 6)
+    ANALYZING_TESTS            existing-test discovery from already-extracted Components (Phase 7)
+    CHARACTERIZING             deferred to Phase 8 (stub: records one Evidence row)
+    GENERATING_TESTS           deferred to Phase 8 (stub: records one Evidence row)
+    EXECUTING                  run existing tests in the Docker sandbox, capture results (Phase 7)
 """
 
 from __future__ import annotations
@@ -45,10 +49,12 @@ from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.logging import get_logger
 from archon.db.models import AnalysisRun, Evidence, Repository, RepositorySnapshot
 from archon.domain.enums import Classification, RunMode, RunState, Stage
+from archon.execution.runner import run_existing_tests
 from archon.jobs.manager import JobManager
 from archon.jobs.state_machine import RunStateMachine
 from archon.pipeline.support import assess_support
 from archon.providers.repo import provider_for
+from archon.testing.discovery import discover_existing_tests
 from archon.workspace.manager import Workspace, WorkspaceManager
 
 log = get_logger("archon.pipeline")
@@ -67,6 +73,10 @@ _ANALYSIS_STAGES = (
     Stage.SCORING_HOTSPOTS,
     Stage.ASSESSING_CHANGE_SAFETY,
     Stage.ANALYZING_CHANGE_IMPACT,
+    Stage.ANALYZING_TESTS,
+    Stage.CHARACTERIZING,
+    Stage.GENERATING_TESTS,
+    Stage.EXECUTING,
 )
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
@@ -96,6 +106,10 @@ class PipelineResult:
     hotspots: dict | None = None
     change_safety: dict | None = None
     change_impact: dict | None = None
+    test_discovery: dict | None = None
+    characterization: dict | None = None
+    test_generation: dict | None = None
+    execution: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -134,6 +148,10 @@ class PipelineOrchestrator:
         hotspot_summary: dict | None = None
         change_safety_summary: dict | None = None
         change_impact_summary: dict | None = None
+        test_discovery_summary: dict | None = None
+        characterization_summary: dict | None = None
+        test_generation_summary: dict | None = None
+        execution_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -182,6 +200,16 @@ class PipelineOrchestrator:
             elif stage is Stage.ANALYZING_CHANGE_IMPACT:
                 assert snapshot is not None
                 change_impact_summary = self._change_impact(session, run, snapshot)
+            elif stage is Stage.ANALYZING_TESTS:
+                assert snapshot is not None
+                test_discovery_summary = self._analyzing_tests(session, run, snapshot)
+            elif stage is Stage.CHARACTERIZING:
+                characterization_summary = self._characterizing(session, run)
+            elif stage is Stage.GENERATING_TESTS:
+                test_generation_summary = self._generating_tests(session, run)
+            elif stage is Stage.EXECUTING:
+                assert clone_result is not None and snapshot is not None
+                execution_summary = self._executing(session, run, snapshot, clone_result.workspace)
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -212,6 +240,10 @@ class PipelineOrchestrator:
             hotspots=hotspot_summary,
             change_safety=change_safety_summary,
             change_impact=change_impact_summary,
+            test_discovery=test_discovery_summary,
+            characterization=characterization_summary,
+            test_generation=test_generation_summary,
+            execution=execution_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -423,6 +455,43 @@ class PipelineOrchestrator:
         summary = run_change_impact(session, run, snapshot)
         log.info(
             "change impact stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _analyzing_tests(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = discover_existing_tests(session, run, snapshot)
+        log.info(
+            "test discovery stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _characterizing(self, session: Session, run: AnalysisRun) -> dict:
+        # Honest stub - Phase 8's job. No table writes; just an evidence-backed deferral.
+        self._add_evidence(
+            session, run, Stage.CHARACTERIZING, Classification.INFERENCE,
+            "Characterization deferred to Phase 8",
+            produced_by="characterization.v0",
+        )
+        return {"deferred": True}
+
+    def _generating_tests(self, session: Session, run: AnalysisRun) -> dict:
+        self._add_evidence(
+            session, run, Stage.GENERATING_TESTS, Classification.INFERENCE,
+            "AI test generation deferred to Phase 8",
+            produced_by="test_generation.v0",
+        )
+        return {"deferred": True}
+
+    def _executing(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = run_existing_tests(session, run, snapshot, workspace)
+        log.info(
+            "execution stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
         return summary.as_dict()

@@ -46,6 +46,9 @@ class ErrorCode(str, enum.Enum):
     # AI (spec sections 13-14, 61)
     AI_PROVIDER_ERROR = "AI_PROVIDER_ERROR"
     AI_OUTPUT_INVALID = "AI_OUTPUT_INVALID"
+    # sandbox / execution (spec sections 12, 36)
+    SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
+    CONTAINER_START_FAILED = "CONTAINER_START_FAILED"
 
 
 _HTTP_STATUS: dict[ErrorCode, int] = {
@@ -72,6 +75,8 @@ _HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.TIMEOUT: 504,
     ErrorCode.AI_PROVIDER_ERROR: 502,
     ErrorCode.AI_OUTPUT_INVALID: 500,
+    ErrorCode.SANDBOX_UNAVAILABLE: 503,
+    ErrorCode.CONTAINER_START_FAILED: 502,
 }
 
 

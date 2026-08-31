@@ -8,6 +8,7 @@ import {
   type ChangeImpact,
   type Component,
   type Evolution,
+  type Execution,
   type Hotspot,
   type LegacyDna,
   type ModuleArch,
@@ -962,6 +963,71 @@ function ChangeImpactPanel({ runId, snapshotId }: { runId: string; snapshotId: s
   );
 }
 
+function TestExecutionPanel({ runId }: { runId: string }) {
+  const [executions, setExecutions] = useState<Execution[] | null>(null);
+  const [testCount, setTestCount] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getExecutions(runId).then((r) => live && setExecutions(r)).catch(() => undefined);
+    api.getTests(runId).then((r) => live && setTestCount(r.length)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!executions || executions.length === 0) return null;
+  return (
+    <>
+      <h2>Test Execution</h2>
+      <div className="card">
+        {testCount != null && (
+          <div className="meta" style={{ marginBottom: 8 }}>
+            {testCount} existing test(s) discovered
+          </div>
+        )}
+        <table>
+          <thead>
+            <tr>
+              <th>Kind</th>
+              <th>Command</th>
+              <th>Result</th>
+              <th>Passed</th>
+              <th>Failed</th>
+              <th>Errors</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {executions.map((e) => {
+              const ok = e.exit_code === 0 && !e.timed_out;
+              return (
+                <tr key={e.id}>
+                  <td className="meta">{e.kind}</td>
+                  <td className="meta">{e.command.join(" ").slice(0, 60)}</td>
+                  <td>
+                    <span
+                      className="pill"
+                      style={{
+                        borderColor: ok ? "#7ee0a2" : "#ff9d9d",
+                        color: ok ? "#7ee0a2" : "#ff9d9d",
+                      }}
+                    >
+                      {e.timed_out ? "TIMED OUT" : `exit ${e.exit_code}`}
+                    </span>
+                  </td>
+                  <td>{e.passed}</td>
+                  <td>{e.failed}</td>
+                  <td>{e.errors}</td>
+                  <td className="meta">{e.duration_ms} ms</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -1049,6 +1115,7 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <HotspotsPanel runId={run.id} />
               <ChangeSafetyPanel runId={run.id} />
               <ChangeImpactPanel runId={run.id} snapshotId={run.snapshot_id} />
+              <TestExecutionPanel runId={run.id} />
             </>
           )}
 

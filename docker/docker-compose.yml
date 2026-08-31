@@ -49,6 +49,11 @@ services:
         condition: service_started
     volumes:
       - archon_data:/data
+      # Phase 7: sibling-container access to the HOST's Docker daemon, not
+      # Docker-in-Docker - DockerSandbox never bind-mounts a host path (it streams
+      # the workspace in/out over `docker exec` + tar), so no path-translation
+      # gotcha applies here despite the worker's own client running in a container.
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   archon_db:
