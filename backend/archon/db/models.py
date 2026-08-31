@@ -48,6 +48,8 @@ from archon.domain.enums import (
     TechDebtSeverity,
     TestCaseKind,
     TestCaseOrigin,
+    TestGapKind,
+    TestGapPriority,
 )
 
 
@@ -667,6 +669,72 @@ class Execution(Base, TimestampMixin):
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class Characterization(Base, TimestampMixin):
+    """A reproducible baseline of a component's *observed* current behaviour
+    (spec section 33, Principle 14 - observed is not assumed correct).
+
+    ``input_spec``/``observed_output_ref`` cover every bounded input tried; the sha256
+    ``baseline_hash`` over both is what "reproducible run-to-run" is checked against.
+    """
+
+    __tablename__ = "characterizations"
+    __table_args__ = (Index("ix_characterization_run_component", "run_id", "component_id"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("char"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str | None] = mapped_column(
+        ForeignKey("components.id", ondelete="SET NULL"), index=True
+    )
+    input_spec: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    observed_output_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    observed_side_effects: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    baseline_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    test_case_id: Mapped[str | None] = mapped_column(
+        ForeignKey("test_cases.id", ondelete="SET NULL"), index=True
+    )
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class TestGap(Base, TimestampMixin):
+    """A computed test-gap finding, prioritized by Legacy Risk / Change Safety
+    (spec sections 33-35). ``historical_failures`` has no data until Phase 9 - see
+    ``factor_breakdown`` for the explicit, documented zero-weight entry."""
+
+    __tablename__ = "test_gaps"
+    __table_args__ = (
+        UniqueConstraint("run_id", "component_id", "kind", name="uq_test_gap_run_component_kind"),
+        Index("ix_test_gap_run_priority", "run_id", "priority"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("gap"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[TestGapKind] = mapped_column(_enum(TestGapKind), nullable=False)
+    coverage_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    legacy_risk_score: Mapped[float | None] = mapped_column(Float)
+    change_safety_score: Mapped[float | None] = mapped_column(Float)
+    priority_score: Mapped[float] = mapped_column(Float, nullable=False)
+    priority: Mapped[TestGapPriority] = mapped_column(_enum(TestGapPriority), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    factor_breakdown: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    evidence_ids: Mapped[list | None] = mapped_column(JSON)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
@@ -674,6 +742,7 @@ __all__ = [
     "BehaviorReconstruction",
     "ChangeAssessment",
     "ChangeImpact",
+    "Characterization",
     "Commit",
     "Component",
     "Dependency",
@@ -687,4 +756,5 @@ __all__ = [
     "RiskAssessment",
     "TechnicalDebtFinding",
     "TestCase",
+    "TestGap",
 ]

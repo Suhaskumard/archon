@@ -363,3 +363,31 @@ class ExecutionOut(BaseModel):
     coverage_ref: str | None
     started_at: datetime | None
     ended_at: datetime | None
+
+
+# --- Phase 8: characterization & test gaps --------------------------------------------
+
+
+class CharacterizationOut(BaseModel):
+    id: str
+    component_id: str | None
+    component_qn: str | None = None
+    input_spec: list
+    observed_output_ref: str | None
+    observed_side_effects: list
+    baseline_hash: str
+    test_case_id: str | None
+
+
+class TestGapOut(BaseModel):
+    id: str
+    component_id: str
+    component_qn: str | None = None
+    kind: str
+    coverage_pct: float
+    legacy_risk_score: float | None
+    change_safety_score: float | None
+    priority_score: float
+    priority: str
+    confidence: float
+    factor_breakdown: dict

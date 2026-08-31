@@ -291,6 +291,31 @@ export interface Execution {
   ended_at: string | null;
 }
 
+export interface Characterization {
+  id: string;
+  component_id: string | null;
+  component_qn: string | null;
+  input_spec: Record<string, unknown>[];
+  observed_output_ref: string | null;
+  observed_side_effects: Record<string, unknown>[];
+  baseline_hash: string;
+  test_case_id: string | null;
+}
+
+export interface TestGap {
+  id: string;
+  component_id: string;
+  component_qn: string | null;
+  kind: string;
+  coverage_pct: number;
+  legacy_risk_score: number | null;
+  change_safety_score: number | null;
+  priority_score: number;
+  priority: string;
+  confidence: number;
+  factor_breakdown: Record<string, unknown>;
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -338,4 +363,7 @@ export const api = {
     }),
   getTests: (runId: string) => req<TestCase[]>(`/runs/${runId}/tests`),
   getExecutions: (runId: string) => req<Execution[]>(`/runs/${runId}/executions`),
+  getCharacterization: (runId: string) =>
+    req<Characterization[]>(`/runs/${runId}/characterization`),
+  getTestGaps: (runId: string) => req<TestGap[]>(`/runs/${runId}/test-gaps`),
 };

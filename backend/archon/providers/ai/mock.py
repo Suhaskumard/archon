@@ -135,6 +135,74 @@ class MockAIProvider(AIProvider):
             "reasoning_summary": "Assembled from the AST signature, raised exceptions and call edges.",
         }
 
+    def _op_test_generation(self, ctx: dict) -> dict:
+        comp = ctx.get("component", {})
+        qn = comp.get("qualified_name", "?")
+        cid = comp.get("id", "")
+        params: list[str] = comp.get("params", [])
+        has_raise = bool(ctx.get("has_raise"))
+        has_dependencies = bool(ctx.get("has_dependencies"))
+
+        def args(value) -> dict:
+            return {p: value for p in params}
+
+        scenarios = [
+            {
+                "kind": "UNIT",
+                "description": f"Call {qn} with plain default-shaped arguments.",
+                "input_args": args(0),
+                "expected_behavior": "returns",
+            },
+            {
+                "kind": "BOUNDARY",
+                "description": f"Call {qn} with boundary values (0, -1) for each argument.",
+                "input_args": args(-1),
+                "expected_behavior": "returns",
+            },
+            {
+                "kind": "INVALID_INPUT",
+                "description": f"Call {qn} with None for each argument.",
+                "input_args": args(None),
+                "expected_behavior": "raises",
+            },
+        ]
+        if has_raise:
+            scenarios.append({
+                "kind": "EXCEPTION",
+                "description": f"{qn} contains a raise statement; exercise the error path.",
+                "input_args": args(None),
+                "expected_behavior": "raises",
+            })
+        scenarios.append({
+            "kind": "REGRESSION",
+            "description": (
+                f"Placeholder regression scenario for {qn} - no historical failure data "
+                "exists yet (lands in a later phase); this pins today's default-argument behaviour."
+            ),
+            "input_args": args(0),
+            "expected_behavior": "returns",
+        })
+        if has_dependencies:
+            scenarios.append({
+                "kind": "INTEGRATION",
+                "description": f"{qn} calls other components; exercise it end-to-end.",
+                "input_args": args(0),
+                "expected_behavior": "returns",
+            })
+
+        return {
+            "target_component": cid,
+            "scenarios": scenarios,
+            "evidence": [{"kind": "component", "ref": qn, "detail": "test-generation subject"}],
+            "confidence": "LOW",
+            "classification": "HYPOTHESIS",
+            "reasoning_summary": (
+                "Template-generated from the component's signature and simple source scans "
+                "(raise statements, outgoing call edges) - no real type inference."
+            ),
+            "recommended_action": "Review each generated test before trusting it as a real spec.",
+        }
+
     def _op_assumption_analysis(self, ctx: dict) -> dict:
         a = ctx.get("assumption", {})
         comp = ctx.get("component", {})

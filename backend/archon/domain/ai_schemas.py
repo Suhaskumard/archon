@@ -22,6 +22,7 @@ from archon.domain.enums import Classification, Confidence
 BEHAVIOR_SCHEMA_VERSION = "behavior_analysis.v1"
 INTENT_SCHEMA_VERSION = "historical_intent.v1"
 ASSUMPTION_SCHEMA_VERSION = "assumption_analysis.v1"
+TEST_GENERATION_SCHEMA_VERSION = "test_generation.v1"
 
 
 class EvidenceRef(BaseModel):
@@ -67,10 +68,31 @@ class AssumptionAnalysis(AIEnvelope):
     suggested_test: str = ""
 
 
+class TestScenario(BaseModel):
+    """One proposed test case for a target component (spec section 33)."""
+
+    kind: Literal["UNIT", "BOUNDARY", "INVALID_INPUT", "EXCEPTION", "REGRESSION", "INTEGRATION"]
+    description: str
+    input_args: dict = Field(default_factory=dict)
+    expected_behavior: str  # "returns", "raises", or free text
+
+
+class TestGeneration(AIEnvelope):
+    """Proposed test scenarios for an untested target (spec sections 33, 35).
+
+    Every scenario is static- and sandbox-validated by ``testing/generation.py`` before
+    it counts - this schema only proposes, it never certifies.
+    """
+
+    target_component: str  # component id
+    scenarios: list[TestScenario] = Field(default_factory=list)
+
+
 SCHEMA_VERSIONS: dict[str, str] = {
     "historical_intent": INTENT_SCHEMA_VERSION,
     "behavior_analysis": BEHAVIOR_SCHEMA_VERSION,
     "assumption_analysis": ASSUMPTION_SCHEMA_VERSION,
+    "test_generation": TEST_GENERATION_SCHEMA_VERSION,
 }
 
 __all__ = [
@@ -79,8 +101,11 @@ __all__ = [
     "HistoricalIntent",
     "BehaviorAnalysis",
     "AssumptionAnalysis",
+    "TestScenario",
+    "TestGeneration",
     "SCHEMA_VERSIONS",
     "INTENT_SCHEMA_VERSION",
     "BEHAVIOR_SCHEMA_VERSION",
     "ASSUMPTION_SCHEMA_VERSION",
+    "TEST_GENERATION_SCHEMA_VERSION",
 ]

@@ -165,6 +165,25 @@ class ExecutionKind(str, enum.Enum):
     REGRESSION = "REGRESSION"
 
 
+class TestGapKind(str, enum.Enum):
+    """Kind of test-gap finding (spec sections 33-35)."""
+
+    UNTESTED_FUNCTION = "UNTESTED_FUNCTION"
+    MISSING_EDGE_CASE = "MISSING_EDGE_CASE"
+    MISSING_EXCEPTION_TEST = "MISSING_EXCEPTION_TEST"
+    MISSING_REGRESSION_TEST = "MISSING_REGRESSION_TEST"
+    MISSING_CHARACTERIZATION = "MISSING_CHARACTERIZATION"
+
+
+class TestGapPriority(str, enum.Enum):
+    """Test-gap priority bucket, ranked by Legacy Risk / Change Safety (spec section 35)."""
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
 class SupportLevel(str, enum.Enum):
     """MVP supported-repository contract (spec section 17)."""
 

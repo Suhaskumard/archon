@@ -19,10 +19,10 @@ Implemented stages:
     SCORING_HOTSPOTS           Hotspot score combining Legacy DNA + tech debt (Phase 5)
     ASSESSING_CHANGE_SAFETY    Change Safety score from coupling/centrality/callers/etc (Phase 6)
     ANALYZING_CHANGE_IMPACT    dependents/callers/tests/co-changes per module (Phase 6)
-    ANALYZING_TESTS            existing-test discovery from already-extracted Components (Phase 7)
-    CHARACTERIZING             deferred to Phase 8 (stub: records one Evidence row)
-    GENERATING_TESTS           deferred to Phase 8 (stub: records one Evidence row)
-    EXECUTING                  run existing tests in the Docker sandbox, capture results (Phase 7)
+    ANALYZING_TESTS            existing-test discovery + structural test-gap candidates (Phase 7/8)
+    CHARACTERIZING             bounded-input characterization baselines in the sandbox (Phase 8)
+    GENERATING_TESTS           AI test generation, static+sandbox validated (Phase 8)
+    EXECUTING                  run the combined suite, parse coverage, rank test gaps (Phase 7/8)
 """
 
 from __future__ import annotations
@@ -45,16 +45,27 @@ from archon.analysis.scoring.tech_debt import run_tech_debt_detection
 from archon.analysis.scoring.understanding_run import run_understanding
 from archon.analysis.source.persist import analyze_source
 from archon.config import get_settings
+from archon.core.artifacts import read_text
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.logging import get_logger
-from archon.db.models import AnalysisRun, Evidence, Repository, RepositorySnapshot
+from archon.db.models import (
+    AnalysisArtifact,
+    AnalysisRun,
+    Evidence,
+    Execution,
+    Repository,
+    RepositorySnapshot,
+)
 from archon.domain.enums import Classification, RunMode, RunState, Stage
 from archon.execution.runner import run_existing_tests
 from archon.jobs.manager import JobManager
 from archon.jobs.state_machine import RunStateMachine
 from archon.pipeline.support import assess_support
 from archon.providers.repo import provider_for
+from archon.testing.characterization import run_characterization
 from archon.testing.discovery import discover_existing_tests
+from archon.testing.gaps import analyze_test_gaps, identify_untested_components
+from archon.testing.generation import run_test_generation
 from archon.workspace.manager import Workspace, WorkspaceManager
 
 log = get_logger("archon.pipeline")
@@ -204,9 +215,15 @@ class PipelineOrchestrator:
                 assert snapshot is not None
                 test_discovery_summary = self._analyzing_tests(session, run, snapshot)
             elif stage is Stage.CHARACTERIZING:
-                characterization_summary = self._characterizing(session, run)
+                assert clone_result is not None and snapshot is not None
+                characterization_summary = self._characterizing(
+                    session, run, snapshot, clone_result.workspace
+                )
             elif stage is Stage.GENERATING_TESTS:
-                test_generation_summary = self._generating_tests(session, run)
+                assert clone_result is not None and snapshot is not None
+                test_generation_summary = self._generating_tests(
+                    session, run, snapshot, clone_result.workspace
+                )
             elif stage is Stage.EXECUTING:
                 assert clone_result is not None and snapshot is not None
                 execution_summary = self._executing(session, run, snapshot, clone_result.workspace)
@@ -463,38 +480,54 @@ class PipelineOrchestrator:
         self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
     ) -> dict:
         summary = discover_existing_tests(session, run, snapshot)
+        result = summary.as_dict()
+        candidates = identify_untested_components(session, run, snapshot)
+        result["untested_candidates"] = len(candidates)
         log.info(
             "test discovery stage complete",
+            extra={"extra_fields": {"run_id": run.id, **result}},
+        )
+        return result
+
+    def _characterizing(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = run_characterization(session, run, snapshot, workspace)
+        log.info(
+            "characterization stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
         return summary.as_dict()
 
-    def _characterizing(self, session: Session, run: AnalysisRun) -> dict:
-        # Honest stub - Phase 8's job. No table writes; just an evidence-backed deferral.
-        self._add_evidence(
-            session, run, Stage.CHARACTERIZING, Classification.INFERENCE,
-            "Characterization deferred to Phase 8",
-            produced_by="characterization.v0",
+    def _generating_tests(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = run_test_generation(session, run, snapshot, workspace)
+        log.info(
+            "test generation stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
-        return {"deferred": True}
-
-    def _generating_tests(self, session: Session, run: AnalysisRun) -> dict:
-        self._add_evidence(
-            session, run, Stage.GENERATING_TESTS, Classification.INFERENCE,
-            "AI test generation deferred to Phase 8",
-            produced_by="test_generation.v0",
-        )
-        return {"deferred": True}
+        return summary.as_dict()
 
     def _executing(
         self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
     ) -> dict:
         summary = run_existing_tests(session, run, snapshot, workspace)
+        result = summary.as_dict()
+        coverage_text = ""
+        if summary.execution_id:
+            execution = session.get(Execution, summary.execution_id)
+            if execution and execution.coverage_ref:
+                artifact = session.get(AnalysisArtifact, execution.coverage_ref)
+                if artifact:
+                    coverage_text = read_text(artifact)
+        gap_summary = analyze_test_gaps(session, run, snapshot, coverage_text)
+        result["test_gaps"] = gap_summary.as_dict()
         log.info(
             "execution stage complete",
-            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+            extra={"extra_fields": {"run_id": run.id, **result}},
         )
-        return summary.as_dict()
+        return result
 
     # --- helpers ----------------------------------------------------------
 

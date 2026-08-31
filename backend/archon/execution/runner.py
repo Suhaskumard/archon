@@ -30,7 +30,7 @@ EXECUTION_VERSION = "execution.v1"
 
 _PYTEST_COMMAND = [
     "python3", "-m", "pytest", "-q", "--tb=short",
-    "--junit-xml=out/junit.xml", "--cov=.", "--cov-report=xml:out/coverage.xml",
+    "--junit-xml=out/junit.xml", "--cov=.", "--cov-branch", "--cov-report=xml:out/coverage.xml",
 ]
 _COUNT_RE = re.compile(r"(\d+) (passed|failed|error(?:s)?)")
 

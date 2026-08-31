@@ -6,6 +6,7 @@ import {
   type Behavior,
   type ChangeAssessment,
   type ChangeImpact,
+  type Characterization,
   type Component,
   type Evolution,
   type Execution,
@@ -17,7 +18,15 @@ import {
   type Run,
   type SourceSummary,
   type TechnicalDebtFinding,
+  type TestGap,
 } from "./api";
+
+const TEST_GAP_PRIORITY_COLOR: Record<string, string> = {
+  LOW: "#9aa4b2",
+  MEDIUM: "#ffd479",
+  HIGH: "#ff9d9d",
+  CRITICAL: "#e5484d",
+};
 
 const RISK_COLOR: Record<string, string> = {
   HIGH: "#ff9d9d",
@@ -1028,6 +1037,102 @@ function TestExecutionPanel({ runId }: { runId: string }) {
   );
 }
 
+function CharacterizationPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Characterization[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getCharacterization(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Characterization</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Inputs tried</th>
+              <th>Baseline hash</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.component_qn ?? r.component_id}</td>
+                <td className="meta">{r.input_spec.length}</td>
+                <td className="meta">
+                  <code>{r.baseline_hash.slice(0, 16)}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="meta" style={{ marginTop: 6 }}>
+          A baseline pins today's observed behaviour (including bugs) — it is not a
+          claim that the behaviour is correct.
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TestIntelligencePanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<TestGap[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getTestGaps(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Test Intelligence</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Kind</th>
+              <th>Coverage</th>
+              <th>Legacy Risk</th>
+              <th>Change Safety</th>
+              <th>Priority</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.component_qn ?? r.component_id}</td>
+                <td className="meta">{r.kind}</td>
+                <td className="meta">{(r.coverage_pct * 100).toFixed(0)}%</td>
+                <td className="meta">{r.legacy_risk_score?.toFixed(0) ?? "—"}</td>
+                <td className="meta">{r.change_safety_score?.toFixed(0) ?? "—"}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{
+                      borderColor: TEST_GAP_PRIORITY_COLOR[r.priority],
+                      color: TEST_GAP_PRIORITY_COLOR[r.priority],
+                    }}
+                  >
+                    {r.priority} · {r.priority_score.toFixed(0)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -1116,6 +1221,8 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <ChangeSafetyPanel runId={run.id} />
               <ChangeImpactPanel runId={run.id} snapshotId={run.snapshot_id} />
               <TestExecutionPanel runId={run.id} />
+              <CharacterizationPanel runId={run.id} />
+              <TestIntelligencePanel runId={run.id} />
             </>
           )}
 

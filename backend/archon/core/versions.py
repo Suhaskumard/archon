@@ -39,8 +39,12 @@ ENGINE_VERSIONS: dict[str, str] = {
     # Phase 7 - secure execution / sandbox
     "test_discovery": "test_discovery.v1",
     "execution": "execution.v1",
-    "characterization": "characterization.v0",  # declared, not implemented until Phase 8
-    "test_generation": "test_generation.v0",  # declared, not implemented until Phase 8
+    # Phase 8 - characterization & test-gap analysis
+    "characterization": "characterization.v1",
+    "test_generation": "test_generation.v1",
+    "coverage_analysis": "coverage_analysis.v1",
+    "test_gap_analysis": "test_gap_analysis.v1",
+    "ai_test_generation": "test_generation.v1",
 }
 
 
