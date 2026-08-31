@@ -230,3 +230,72 @@ class ComponentHistoryOut(BaseModel):
     git: dict
     commits: list[CommitOut]
     co_changed_with: list[dict]   # [{qualified_name, count, confidence}]
+
+
+# --- Phase 5: scoring (legacy risk, hotspots, tech debt, understanding) -------------
+
+
+class RiskAssessmentOut(BaseModel):
+    id: str
+    component_id: str
+    component_qn: str | None = None
+    engine_version: str
+    score: float
+    category: str
+    factor_breakdown: dict
+    confidence: float
+
+
+class LegacyDnaOut(BaseModel):
+    id: str
+    component_id: str
+    component_qn: str | None = None
+    age_days: int | None
+    complexity: float | None
+    churn: float | None
+    coupling: float | None
+    coverage: float | None
+    coverage_is_proxy: bool
+    failure_count: int | None
+    assumption_count: int
+    debt_score: float | None
+    legacy_risk_score: float
+    category: str
+    confidence: float
+    factor_breakdown: dict
+
+
+class TechnicalDebtFindingOut(BaseModel):
+    id: str
+    component_id: str | None
+    component_qn: str | None = None
+    category: str
+    location: str
+    evidence: str | None
+    severity: str
+    impact: str | None
+    confidence: float
+    recommendation: str | None
+
+
+class HotspotOut(BaseModel):
+    id: str
+    component_id: str
+    component_qn: str | None = None
+    score: float
+    classification: str
+    reasons: dict
+
+
+class UnderstandingDimensionOut(BaseModel):
+    name: str
+    score: float
+
+
+class RepositoryUnderstandingOut(BaseModel):
+    run_id: str
+    snapshot_id: str
+    overall_score: float
+    confidence: float
+    dimensions: list[UnderstandingDimensionOut]
+    evidence_coverage: dict

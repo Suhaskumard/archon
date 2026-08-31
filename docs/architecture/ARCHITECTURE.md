@@ -47,6 +47,7 @@ contracts later phases must honour. It is the source of truth the spec demands (
 | `analysis/graph` | Phase 3 - NetworkX component + module graphs; derives `DEPENDS_ON` / `TESTED_BY`; cycle detection. |
 | `analysis/architecture` | Phase 3 - role inference (`roles.v1`) + coupling/centrality metrics + layering check + graph artifact. |
 | `analysis/archaeology` | Phase 4 - deterministic behaviour facts + hidden-assumption heuristics + the first AI step. |
+| `analysis/scoring` | Phase 5 - Legacy Risk, Hotspot, Repository Understanding, tech-debt detectors. |
 | `providers/repo` | `RepositoryProvider` ABC, `LocalRepositoryProvider`, `GitHubRepositoryProvider`, `gitcli` safe wrapper. |
 | `providers/ai` | Phase 4 - `AIProvider` ABC + validation pipeline, `MockAIProvider` (deterministic, offline), `get_ai_provider()`. |
 | `workspace` | `WorkspaceManager` — disposable, quota-checked, path-traversal-safe checkout dirs. |
@@ -76,6 +77,10 @@ analysis-output row carries `run_id`; snapshots are immutable once written.
 | `commits` _(0004, Phase 4)_ | A git commit reachable from the snapshot's HEAD. Keyed to the **snapshot**. | `repository_id`, `snapshot_id`, `sha` (unique per snapshot), `author_name/email`, `authored_at`, `committed_at`, `message`, `files_changed`, `insertions`, `deletions`, `is_merge`, `parents`, `changed_paths` |
 | `assumptions` _(0004, Phase 4)_ | One detected hidden assumption. | `run_id`, `snapshot_id`, `component_id`, `kind`, `description`, `location` (`path:line`), `risk`, `confidence`, `suggested_test`, `produced_by`, `evidence_ids` |
 | `behavior_reconstructions` _(0004, Phase 4)_ | Reconstructed behaviour + historical intent per component. | `run_id`, `snapshot_id`, `component_id` (unique per run), `purpose`, `historical_context`, `current_role`, `inputs/outputs/side_effects/exceptions/callers/callees/tests/likely_invariants` (JSON), `git`, `classification`, `confidence`, `produced_by` |
+| `risk_assessments` _(0005, Phase 5)_ | Generic engine-agnostic score row, reusable by any future scoring engine via `engine_version`. | `run_id`, `snapshot_id`, `component_id`, `engine_version`, `score`, `category`, `factor_breakdown` (JSON), `confidence`, `evidence_ids`, `produced_by` |
+| `legacy_dna` _(0005, Phase 5)_ | Full Legacy Risk signal breakdown per component. | `run_id`, `snapshot_id`, `component_id` (unique per run), `age_days`, `complexity`, `churn`, `coupling`, `coverage`, `coverage_is_proxy`, `failure_count`, `assumption_count`, `debt_score`, `legacy_risk_score`, `category`, `confidence`, `factor_breakdown` (JSON) |
+| `technical_debt_findings` _(0005, Phase 5)_ | One tech-debt detector hit. | `run_id`, `snapshot_id`, `component_id` (nullable), `category`, `location` (`path:line`), `evidence`, `severity`, `impact`, `confidence`, `recommendation`, `evidence_id` |
+| `hotspots` _(0005, Phase 5)_ | Hotspot classification per component. | `run_id`, `snapshot_id`, `component_id` (unique per run), `score`, `classification`, `reasons` (JSON), `evidence_ids`, `engine_version` |
 
 `dependencies.kind` is a plain `VARCHAR` via the `EnumString` type decorator
 (`db/types.py`), not a DB `CHECK` — the `DependencyKind` vocabulary grows every phase
@@ -84,8 +89,8 @@ CHANGED_BY/CHANGED_WITH; later: FAILED_IN/FIXED_BY/AFFECTS) and validation happe
 app boundary. Migration `0003` drops+recreates the (fully derived) `dependencies` table to
 apply the widening.
 
-Later phases add `risk_assessments`, `legacy_dna`, … as incremental migrations on this
-baseline.
+Later phases add further tables (e.g. `change_assessments`) as incremental migrations on
+this baseline.
 
 ---
 
@@ -117,10 +122,12 @@ COMPLETED / FAILED / CANCELLED are terminal (no outgoing edges).
 | mode | executed stages |
 |---|---|
 | `INGEST_ONLY` | INGESTING → SNAPSHOTTING |
-| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING _(+ later phases)_ |
+| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING → SCORING_UNDERSTANDING → BUILDING_LEGACY_DNA → ANALYZING_TECH_DEBT → SCORING_HOTSPOTS _(+ later phases)_ |
 
 Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**,
-**ANALYZING_GIT**, **BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**, **ARCHAEOLOGIZING**.
+**ANALYZING_GIT**, **BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**, **ARCHAEOLOGIZING**,
+**SCORING_UNDERSTANDING**, **BUILDING_LEGACY_DNA**, **ANALYZING_TECH_DEBT**,
+**SCORING_HOTSPOTS**.
 Tests read the last stage via `tests/conftest.terminal_stage(mode)` instead of pinning a
 literal, so a new phase no longer ripples through every test.
 
@@ -369,10 +376,75 @@ than silently drops.
 
 ---
 
-## 12. Scoring engines — _(declared; implemented Phases 5–9)_
+## 12. Scoring engines — Change Safety & Patch Ranking _(declared; implemented Phases 6, 9+)_
 
-Legacy Risk, Change Safety, Hotspot, Repository Understanding and Patch Ranking will each
-be a versioned module under `archon/scoring/` with an explicit signal set, normalisation,
-weights in a versioned config, a formula, thresholds, categories, `explain()`, and
-property-based acceptance tests (§5–7, §60). The `core/versions` registry already exists
-to pin their versions onto each `AnalysisRun`.
+Change Safety and Patch Ranking remain declared-only: each will be a versioned module
+under `archon/analysis/scoring/` with an explicit signal set, normalisation, weights in a
+versioned config, a formula, thresholds, categories, `explain()`, and property-based
+acceptance tests (§5–7, §60), following the same shape Phase 5 established for its four
+engines (§13). The `core/versions` registry already exists to pin their versions onto
+each `AnalysisRun`.
+
+---
+
+## 13. Scoring engines — Legacy Risk, Hotspot, Understanding, Tech Debt (Phase 5, §27-30)
+
+Four deterministic engines - no AI - under `archon/analysis/scoring/`, run as the last
+four stages of `ANALYSIS_ONLY`/`FULL`: `SCORING_UNDERSTANDING → BUILDING_LEGACY_DNA →
+ANALYZING_TECH_DEBT → SCORING_HOTSPOTS`. All source their signals from data Phases 2-4
+already persisted (`Component.metrics`, `assumptions`, `Dependency`).
+
+**Legacy Risk** (`legacy_risk.v1`) - a weighted sum of normalized `[0,1]` signals
+(complexity, churn, coverage-gap, coupling, assumption count, debt score, age), weighted
+so churn + complexity + low coverage dominate (spec sec 7). `confidence` is the fraction
+of signals backed by real data; coverage-gap is *always* a documented proxy this phase
+(see below) and always counts against confidence, while historical failures (no data
+until Phase 9) are omitted from the signal set entirely rather than defaulted to a false
+"zero risk". Persists **both** a `LegacyDNA` row (the full signal breakdown - complexity,
+churn, coupling, coverage, debt, age, confidence) and a `RiskAssessment` row
+(`engine_version="legacy_risk.v1"`, generic score/category/confidence). `RiskAssessment`
+is deliberately engine-agnostic so Change Safety (Phase 6) and Patch Ranking (later) can
+write to the same table without a schema change; `LegacyDNA` stays Legacy-Risk-specific.
+
+**Hotspot** (`hotspot.v1`) - the same normalized signal set, with a multiplicative
+"signals overlap" bonus when ≥3 signals are independently elevated (spec sec 29). Runs
+*last* in the stage order so it can reuse `LegacyDNA` rows for complexity/churn/coupling/
+coverage and the **full** 13-detector `TechnicalDebtFinding` set (only available once
+`ANALYZING_TECH_DEBT` has run) as its debt signal - a stronger signal than Legacy Risk's
+own debt input (see the tech-debt ordering note below).
+
+**Repository Understanding** (`understanding.v1`) - six evidence-coverage fractions
+(architecture: % modules with a resolved role; dependency: % internal edges resolved;
+behavior: % components with a behavior reconstruction; historical: git history span
+capped at a "deep enough" threshold; testing: % modules with a `TESTED_BY` edge;
+configuration: % config files parsed without error), averaged into an overall score, with
+confidence tracking the same fractions (sparse evidence lowers both, spec sec 30). Cheap
+pure aggregation - always recomputed, never cached across runs.
+
+**Tech-debt detectors** (`tech_debt.v1`) - 13 categories. Six are pure lookups against
+already-persisted data: `long_functions`/`large_classes` (stored `loc`/`method_count`),
+`circular_dependencies`/`high_coupling` (Phase 3's `metrics.architecture`),
+`dead_code_candidates` (Phase 2's CALLS/INHERITS edges), and `global_state` (reuses Phase
+4's `assumptions` table heuristic verbatim - zero new AST code). The remaining seven
+(`duplicate_logic`, `low_cohesion`, `deprecated_apis`, `hardcoded_config`, `broad_except`,
+`silent_failure`, `magic_numbers`) run one new AST pass per source file. Findings persist
+to `TechnicalDebtFinding`, resolved to the nearest enclosing component by line range when
+the detector doesn't already know its `component_id`.
+
+**Debt-score ordering** - the `Stage` enum fixes `BUILDING_LEGACY_DNA` before
+`ANALYZING_TECH_DEBT`, so Legacy Risk cannot wait for the full detector pass. It computes
+a **cheap 4-detector subset** (long functions, large classes, circular dependencies, high
+coupling - all pure lookups, no fresh AST) internally for its own `debt_score` input.
+`ANALYZING_TECH_DEBT` then runs and persists the full 13-detector set independently, and
+`SCORING_HOTSPOTS` (last) consumes that full set. A deliberate, bounded scope decision,
+not an oversight.
+
+**Coverage proxy** - no real test-execution/coverage data exists until Phase 8. Every
+`LegacyDNA.coverage` value this phase is a coarse proxy (`0.5` if the owning module has a
+`TESTED_BY` edge, else `0.0`), flagged `coverage_is_proxy=True` and always counted as
+defaulted in the confidence calculation - never presented as measured coverage.
+
+**API:** `GET /runs/{id}/legacy-dna` (+ `/components/{id}/legacy-dna`),
+`GET /runs/{id}/hotspots`, `GET /runs/{id}/technical-debt`,
+`GET /runs/{id}/understanding`. **Frontend:** Repository Understanding, Legacy DNA,
+Technical Debt, Hotspots.

@@ -160,6 +160,61 @@ export interface Behavior {
   confidence: string | null;
 }
 
+export interface LegacyDna {
+  id: string;
+  component_id: string;
+  component_qn: string | null;
+  age_days: number | null;
+  complexity: number | null;
+  churn: number | null;
+  coupling: number | null;
+  coverage: number | null;
+  coverage_is_proxy: boolean;
+  failure_count: number | null;
+  assumption_count: number;
+  debt_score: number | null;
+  legacy_risk_score: number;
+  category: "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
+  confidence: number;
+  factor_breakdown: Record<string, unknown>;
+}
+
+export interface Hotspot {
+  id: string;
+  component_id: string;
+  component_qn: string | null;
+  score: number;
+  classification: "STABLE" | "WATCH" | "RISKY" | "CRITICAL";
+  reasons: Record<string, unknown>;
+}
+
+export interface TechnicalDebtFinding {
+  id: string;
+  component_id: string | null;
+  component_qn: string | null;
+  category: string;
+  location: string;
+  evidence: string | null;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  impact: string | null;
+  confidence: number;
+  recommendation: string | null;
+}
+
+export interface UnderstandingDimension {
+  name: string;
+  score: number;
+}
+
+export interface RepositoryUnderstanding {
+  run_id: string;
+  snapshot_id: string;
+  overall_score: number;
+  confidence: number;
+  dimensions: UnderstandingDimension[];
+  evidence_coverage: Record<string, unknown>;
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -195,4 +250,8 @@ export const api = {
   getEvolution: (runId: string) => req<Evolution>(`/runs/${runId}/evolution`),
   getAssumptions: (runId: string) => req<Assumption[]>(`/runs/${runId}/assumptions`),
   getBehavior: (runId: string) => req<Behavior[]>(`/runs/${runId}/behavior`),
+  getLegacyDna: (runId: string) => req<LegacyDna[]>(`/runs/${runId}/legacy-dna`),
+  getHotspots: (runId: string) => req<Hotspot[]>(`/runs/${runId}/hotspots`),
+  getTechnicalDebt: (runId: string) => req<TechnicalDebtFinding[]>(`/runs/${runId}/technical-debt`),
+  getUnderstanding: (runId: string) => req<RepositoryUnderstanding>(`/runs/${runId}/understanding`),
 };

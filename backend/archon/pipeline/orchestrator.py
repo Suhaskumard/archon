@@ -13,6 +13,10 @@ Implemented stages:
     BUILDING_GRAPH             derive module DEPENDS_ON / TESTED_BY edges + cycle detection (Phase 3)
     RECONSTRUCTING_ARCHITECTURE  role inference + coupling metrics + graph artifact (Phase 3)
     ARCHAEOLOGIZING            behaviour reconstruction + hidden assumptions + first AI step (Phase 4)
+    SCORING_UNDERSTANDING      repository-understanding evidence-coverage score (Phase 5)
+    BUILDING_LEGACY_DNA        Legacy Risk score + LegacyDNA signal breakdown (Phase 5)
+    ANALYZING_TECH_DEBT        13 tech-debt detectors -> TechnicalDebtFinding rows (Phase 5)
+    SCORING_HOTSPOTS           Hotspot score combining Legacy DNA + tech debt (Phase 5)
 """
 
 from __future__ import annotations
@@ -27,6 +31,10 @@ from archon.analysis.archaeology.reconstruct import run_archaeology
 from archon.analysis.architecture.reconstruct import reconstruct_architecture
 from archon.analysis.git.persist import analyze_git
 from archon.analysis.graph.derive import derive_edges
+from archon.analysis.scoring.hotspots import run_hotspot_scoring
+from archon.analysis.scoring.legacy_dna import run_legacy_risk
+from archon.analysis.scoring.tech_debt import run_tech_debt_detection
+from archon.analysis.scoring.understanding_run import run_understanding
 from archon.analysis.source.persist import analyze_source
 from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
@@ -49,6 +57,10 @@ _ANALYSIS_STAGES = (
     Stage.BUILDING_GRAPH,
     Stage.RECONSTRUCTING_ARCHITECTURE,
     Stage.ARCHAEOLOGIZING,
+    Stage.SCORING_UNDERSTANDING,
+    Stage.BUILDING_LEGACY_DNA,
+    Stage.ANALYZING_TECH_DEBT,
+    Stage.SCORING_HOTSPOTS,
 )
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
@@ -72,6 +84,10 @@ class PipelineResult:
     architecture: dict | None = None
     git: dict | None = None
     archaeology: dict | None = None
+    understanding: dict | None = None
+    legacy_dna: dict | None = None
+    tech_debt: dict | None = None
+    hotspots: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -104,6 +120,10 @@ class PipelineOrchestrator:
         architecture_summary: dict | None = None
         git_summary: dict | None = None
         archaeology_summary: dict | None = None
+        understanding_summary: dict | None = None
+        legacy_dna_summary: dict | None = None
+        tech_debt_summary: dict | None = None
+        hotspot_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -134,6 +154,18 @@ class PipelineOrchestrator:
                 archaeology_summary = self._archaeology(
                     session, run, snapshot, clone_result.workspace
                 )
+            elif stage is Stage.SCORING_UNDERSTANDING:
+                assert snapshot is not None
+                understanding_summary = self._understanding(session, run, snapshot)
+            elif stage is Stage.BUILDING_LEGACY_DNA:
+                assert snapshot is not None
+                legacy_dna_summary = self._legacy_dna(session, run, snapshot)
+            elif stage is Stage.ANALYZING_TECH_DEBT:
+                assert clone_result is not None and snapshot is not None
+                tech_debt_summary = self._tech_debt(session, run, snapshot, clone_result.workspace)
+            elif stage is Stage.SCORING_HOTSPOTS:
+                assert snapshot is not None
+                hotspot_summary = self._hotspots(session, run, snapshot)
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -158,6 +190,10 @@ class PipelineOrchestrator:
             architecture=architecture_summary,
             git=git_summary,
             archaeology=archaeology_summary,
+            understanding=understanding_summary,
+            legacy_dna=legacy_dna_summary,
+            tech_debt=tech_debt_summary,
+            hotspots=hotspot_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -309,6 +345,46 @@ class PipelineOrchestrator:
         summary = run_archaeology(session, run, snapshot, workspace.resolve_within("repo"))
         log.info(
             "archaeology stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _understanding(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = run_understanding(session, run, snapshot)
+        log.info(
+            "understanding stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _legacy_dna(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = run_legacy_risk(session, run, snapshot)
+        log.info(
+            "legacy dna stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _tech_debt(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = run_tech_debt_detection(session, run, snapshot, workspace.resolve_within("repo"))
+        log.info(
+            "tech debt stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _hotspots(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = run_hotspot_scoring(session, run, snapshot)
+        log.info(
+            "hotspots stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
         return summary.as_dict()

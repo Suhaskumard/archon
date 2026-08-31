@@ -70,6 +70,51 @@ class DependencyKind(str, enum.Enum):
     AFFECTS = "AFFECTS"
 
 
+class RiskCategory(str, enum.Enum):
+    """Legacy Risk score bucket (spec section 27)."""
+
+    LOW = "LOW"
+    MODERATE = "MODERATE"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class HotspotClassification(str, enum.Enum):
+    """Hotspot score bucket (spec section 29)."""
+
+    STABLE = "STABLE"
+    WATCH = "WATCH"
+    RISKY = "RISKY"
+    CRITICAL = "CRITICAL"
+
+
+class TechDebtCategory(str, enum.Enum):
+    """Technical-debt finding category (spec section 28)."""
+
+    LONG_FUNCTION = "LONG_FUNCTION"
+    LARGE_CLASS = "LARGE_CLASS"
+    DUPLICATE_LOGIC = "DUPLICATE_LOGIC"
+    CIRCULAR_DEPENDENCY = "CIRCULAR_DEPENDENCY"
+    HIGH_COUPLING = "HIGH_COUPLING"
+    LOW_COHESION = "LOW_COHESION"
+    DEAD_CODE_CANDIDATE = "DEAD_CODE_CANDIDATE"
+    DEPRECATED_API = "DEPRECATED_API"
+    HARDCODED_CONFIG = "HARDCODED_CONFIG"
+    BROAD_EXCEPT = "BROAD_EXCEPT"
+    SILENT_FAILURE = "SILENT_FAILURE"
+    GLOBAL_STATE = "GLOBAL_STATE"
+    MAGIC_NUMBER = "MAGIC_NUMBER"
+
+
+class TechDebtSeverity(str, enum.Enum):
+    """Technical-debt finding severity (spec section 28)."""
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
 class SupportLevel(str, enum.Enum):
     """MVP supported-repository contract (spec section 17)."""
 

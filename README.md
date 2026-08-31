@@ -9,11 +9,12 @@ incidents, and recommends a safe modernization order.
 
 * Full plan: [`docs/ARCHON_IMPLEMENTATION_PLAN.md`](docs/ARCHON_IMPLEMENTATION_PLAN.md)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
-* Status: **Phases 1–4 complete** —
+* Status: **Phases 1–5 complete** —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
   [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
   [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph) ·
-  [Phase 4](docs/PHASE_4_COMPLETION.md) (git archaeology, hidden assumptions, mock AI)
+  [Phase 4](docs/PHASE_4_COMPLETION.md) (git archaeology, hidden assumptions, mock AI) ·
+  [Phase 5](docs/PHASE_5_COMPLETION.md) (legacy risk, hotspots, tech debt, repository understanding)
 
 ## Quick start (local, SQLite)
 
@@ -51,7 +52,7 @@ docker compose -f docker/docker-compose.yml up --build
 ## Tests
 
 ```bash
-cd backend && ../.venv/Scripts/python -m pytest        # 185 passing
+cd backend && ../.venv/Scripts/python -m pytest        # 238 passing
 ../.venv/Scripts/python -m ruff check archon tests alembic
 ```
 

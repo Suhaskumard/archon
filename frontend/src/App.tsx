@@ -6,16 +6,35 @@ import {
   type Behavior,
   type Component,
   type Evolution,
+  type Hotspot,
+  type LegacyDna,
   type ModuleArch,
   type Repository,
+  type RepositoryUnderstanding,
   type Run,
   type SourceSummary,
+  type TechnicalDebtFinding,
 } from "./api";
 
 const RISK_COLOR: Record<string, string> = {
   HIGH: "#ff9d9d",
   MEDIUM: "#ffd479",
   LOW: "#9aa4b2",
+  CRITICAL: "#e5484d",
+};
+
+const RISK_CATEGORY_COLOR: Record<string, string> = {
+  LOW: "#9aa4b2",
+  MODERATE: "#ffd479",
+  HIGH: "#ff9d9d",
+  CRITICAL: "#e5484d",
+};
+
+const HOTSPOT_COLOR: Record<string, string> = {
+  STABLE: "#7ee0a2",
+  WATCH: "#ffd479",
+  RISKY: "#ff9d9d",
+  CRITICAL: "#e5484d",
 };
 
 const ROLE_COLOR: Record<string, string> = {
@@ -560,6 +579,207 @@ function ArchaeologyPanel({ runId }: { runId: string }) {
   );
 }
 
+function UnderstandingPanel({ runId }: { runId: string }) {
+  const [data, setData] = useState<RepositoryUnderstanding | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getUnderstanding(runId).then((d) => live && setData(d)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!data) return null;
+  return (
+    <>
+      <h2>Repository Understanding</h2>
+      <div className="card">
+        <div className="meta">
+          overall score <b>{data.overall_score.toFixed(1)}</b>/100 · confidence{" "}
+          {data.confidence.toFixed(2)}
+        </div>
+        <svg
+          viewBox={`0 0 220 ${data.dimensions.length * 18 + 4}`}
+          width={320}
+          height={data.dimensions.length * 18 + 4}
+          style={{ marginTop: 8 }}
+        >
+          {data.dimensions.map((d, i) => (
+            <g key={d.name}>
+              <text x={0} y={i * 18 + 11} fontSize="9" fill="#9aa4b2">
+                {d.name}
+              </text>
+              <rect x={70} y={i * 18 + 2} width={(d.score / 100) * 140} height={10} fill="#5b9dff" />
+              <text x={214} y={i * 18 + 11} fontSize="8" fill="#9aa4b2" textAnchor="end">
+                {d.score.toFixed(0)}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </>
+  );
+}
+
+function LegacyDnaPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<LegacyDna[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getLegacyDna(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Legacy DNA</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Risk</th>
+              <th>Complexity</th>
+              <th>Churn</th>
+              <th>Coupling</th>
+              <th>Coverage</th>
+              <th>Assumptions</th>
+              <th>Debt</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.component_qn}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{ borderColor: RISK_CATEGORY_COLOR[r.category], color: RISK_CATEGORY_COLOR[r.category] }}
+                  >
+                    {r.category} · {r.legacy_risk_score.toFixed(0)}
+                  </span>
+                </td>
+                <td className="meta">{r.complexity?.toFixed(1) ?? "—"}</td>
+                <td className="meta">{r.churn?.toFixed(0) ?? "—"}</td>
+                <td className="meta">{r.coupling?.toFixed(0) ?? "—"}</td>
+                <td className="meta" title={r.coverage_is_proxy ? "proxy — TESTED_BY presence, not measured coverage" : ""}>
+                  {r.coverage != null ? r.coverage.toFixed(2) : "—"}
+                  {r.coverage_is_proxy && "*"}
+                </td>
+                <td className="meta">{r.assumption_count}</td>
+                <td className="meta">{r.debt_score?.toFixed(2) ?? "—"}</td>
+                <td className="meta">{r.confidence.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="meta" style={{ marginTop: 6 }}>
+          * coverage is a proxy (presence of a test file), not measured coverage — real
+          coverage data lands in a later phase.
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TechnicalDebtPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<TechnicalDebtFinding[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getTechnicalDebt(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Technical Debt</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Severity</th>
+              <th>Location</th>
+              <th>Evidence</th>
+              <th>Recommendation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((f) => (
+              <tr key={f.id}>
+                <td className="meta">{f.category}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{ borderColor: RISK_COLOR[f.severity], color: RISK_COLOR[f.severity] }}
+                  >
+                    {f.severity}
+                  </span>
+                </td>
+                <td className="meta">{f.location}</td>
+                <td>{f.evidence}</td>
+                <td className="meta">{f.recommendation}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function HotspotsPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Hotspot[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getHotspots(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Hotspots</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Score</th>
+              <th>Classification</th>
+              <th>Reasons</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((h) => {
+              const elevated = (h.reasons.elevated_signals as string[] | undefined) ?? [];
+              return (
+                <tr key={h.id}>
+                  <td>{h.component_qn}</td>
+                  <td className="meta">{h.score.toFixed(0)}</td>
+                  <td>
+                    <span
+                      className="pill"
+                      style={{ borderColor: HOTSPOT_COLOR[h.classification], color: HOTSPOT_COLOR[h.classification] }}
+                    >
+                      {h.classification}
+                    </span>
+                  </td>
+                  <td className="meta">{elevated.join(", ")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -641,6 +861,10 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <ArchitecturePanel runId={run.id} />
               <ArchaeologyPanel runId={run.id} />
               <AssumptionsPanel runId={run.id} />
+              <UnderstandingPanel runId={run.id} />
+              <LegacyDnaPanel runId={run.id} />
+              <TechnicalDebtPanel runId={run.id} />
+              <HotspotsPanel runId={run.id} />
             </>
           )}
 

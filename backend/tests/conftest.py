@@ -51,6 +51,14 @@ def test_repo(tmp_path_factory) -> Path:
 
 
 @pytest.fixture
+def scoring_repo(tmp_path_factory) -> Path:
+    from tests.fixtures.build_scoring_repo import build_scoring_repo
+
+    dest = tmp_path_factory.mktemp("scoring_fixture_repo")
+    return build_scoring_repo(dest)
+
+
+@pytest.fixture
 def client():
     from fastapi.testclient import TestClient
 

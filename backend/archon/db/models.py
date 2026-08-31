@@ -33,13 +33,17 @@ from archon.domain.enums import (
     Classification,
     ComponentKind,
     DependencyKind,
+    HotspotClassification,
     JobState,
     JobType,
     ProviderKind,
+    RiskCategory,
     RunMode,
     RunState,
     Stage,
     SupportLevel,
+    TechDebtCategory,
+    TechDebtSeverity,
 )
 
 
@@ -382,6 +386,136 @@ class BehaviorReconstruction(Base, TimestampMixin):
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class RiskAssessment(Base, TimestampMixin):
+    """Generic scoring-engine output row (spec sections 27, 60).
+
+    Reused by every future scoring engine (Change Safety in Phase 6, Patch Ranking
+    later) via ``engine_version`` - do not add engine-specific columns here; put those
+    in an engine-specific detail table (see ``LegacyDNA`` for Legacy Risk's).
+    """
+
+    __tablename__ = "risk_assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "component_id", "engine_version", name="uq_risk_run_component_engine"
+        ),
+        Index("ix_risk_run_category", "run_id", "category"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("risk"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    engine_version: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    category: Mapped[RiskCategory] = mapped_column(_enum(RiskCategory), nullable=False)
+    factor_breakdown: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    evidence_ids: Mapped[list | None] = mapped_column(JSON)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class LegacyDNA(Base, TimestampMixin):
+    """Full Legacy Risk signal snapshot for one component (spec sections 27, 30)."""
+
+    __tablename__ = "legacy_dna"
+    __table_args__ = (
+        UniqueConstraint("run_id", "component_id", name="uq_legacy_dna_run_component"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("dna"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    age_days: Mapped[int | None] = mapped_column(Integer)
+    complexity: Mapped[float | None] = mapped_column(Float)
+    churn: Mapped[float | None] = mapped_column(Float)
+    coupling: Mapped[float | None] = mapped_column(Float)
+    coverage: Mapped[float | None] = mapped_column(Float)  # proxy value - see legacy_dna.py
+    coverage_is_proxy: Mapped[bool] = mapped_column(default=True, nullable=False)
+    failure_count: Mapped[int | None] = mapped_column(Integer)  # always None pre-Phase-9
+    assumption_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    debt_score: Mapped[float | None] = mapped_column(Float)
+    legacy_risk_score: Mapped[float] = mapped_column(Float, nullable=False)
+    category: Mapped[RiskCategory] = mapped_column(_enum(RiskCategory), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    factor_breakdown: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    evidence_ids: Mapped[list | None] = mapped_column(JSON)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class TechnicalDebtFinding(Base, TimestampMixin):
+    """One tech-debt detector hit (spec section 28)."""
+
+    __tablename__ = "technical_debt_findings"
+    __table_args__ = (
+        Index("ix_debt_run_category", "run_id", "category"),
+        Index("ix_debt_run_component", "run_id", "component_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("debt"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str | None] = mapped_column(
+        ForeignKey("components.id", ondelete="SET NULL"), index=True
+    )
+    category: Mapped[TechDebtCategory] = mapped_column(_enum(TechDebtCategory), nullable=False)
+    location: Mapped[str] = mapped_column(String(1024), nullable=False)  # path:line
+    evidence: Mapped[str | None] = mapped_column(Text)
+    severity: Mapped[TechDebtSeverity] = mapped_column(_enum(TechDebtSeverity), nullable=False)
+    impact: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    recommendation: Mapped[str | None] = mapped_column(Text)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    evidence_id: Mapped[str | None] = mapped_column(
+        ForeignKey("evidence.id", ondelete="SET NULL"), index=True
+    )
+
+
+class Hotspot(Base, TimestampMixin):
+    """Hotspot classification for one component (spec sections 27, 29)."""
+
+    __tablename__ = "hotspots"
+    __table_args__ = (
+        UniqueConstraint("run_id", "component_id", name="uq_hotspot_run_component"),
+        Index("ix_hotspot_run_classification", "run_id", "classification"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("hot"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    classification: Mapped[HotspotClassification] = mapped_column(
+        _enum(HotspotClassification), nullable=False
+    )
+    reasons: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    evidence_ids: Mapped[list | None] = mapped_column(JSON)
+    engine_version: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
@@ -391,7 +525,11 @@ __all__ = [
     "Component",
     "Dependency",
     "Evidence",
+    "Hotspot",
     "Job",
+    "LegacyDNA",
     "Repository",
     "RepositorySnapshot",
+    "RiskAssessment",
+    "TechnicalDebtFinding",
 ]

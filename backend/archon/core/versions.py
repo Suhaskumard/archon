@@ -28,6 +28,11 @@ ENGINE_VERSIONS: dict[str, str] = {
     "ai_historical_intent": "historical_intent.v1",
     "ai_behavior_analysis": "behavior_analysis.v1",
     "ai_assumption_analysis": "assumption_analysis.v1",
+    # Phase 5 - legacy DNA, tech debt, hotspots, understanding
+    "legacy_risk": "legacy_risk.v1",
+    "hotspot": "hotspot.v1",
+    "understanding": "understanding.v1",
+    "tech_debt": "tech_debt.v1",
 }
 
 
