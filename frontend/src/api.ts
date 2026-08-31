@@ -215,6 +215,52 @@ export interface RepositoryUnderstanding {
   evidence_coverage: Record<string, unknown>;
 }
 
+export interface ChangeAssessment {
+  id: string;
+  component_id: string;
+  component_qn: string | null;
+  safety_score: number;
+  risk_category: "SAFE" | "CAUTION" | "RISKY" | "DANGEROUS";
+  factor_breakdown: Record<string, unknown>;
+  recommended_preparation: string[];
+  confidence: number;
+}
+
+export interface ChangeImpactEntry {
+  component_id: string;
+  qualified_name: string;
+  kind?: string;
+}
+
+export interface ChangeCoChangeEntry {
+  component_id: string | null;
+  qualified_name: string;
+  count: number;
+  confidence: number;
+}
+
+export interface ChangeExternalIntegration {
+  target_name: string;
+  kind: string;
+}
+
+export interface ChangeImpact {
+  id: string;
+  component_id: string;
+  component_qn: string | null;
+  direct_dependents: ChangeImpactEntry[];
+  indirect_dependents: ChangeImpactEntry[];
+  callers: ChangeImpactEntry[];
+  related_tests: ChangeImpactEntry[];
+  historical_co_changes: ChangeCoChangeEntry[];
+  external_integrations: ChangeExternalIntegration[];
+  potential_impact: {
+    what_could_break: string[];
+    tests_to_run: string[];
+    what_to_do_first: string[];
+  };
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -254,4 +300,10 @@ export const api = {
   getHotspots: (runId: string) => req<Hotspot[]>(`/runs/${runId}/hotspots`),
   getTechnicalDebt: (runId: string) => req<TechnicalDebtFinding[]>(`/runs/${runId}/technical-debt`),
   getUnderstanding: (runId: string) => req<RepositoryUnderstanding>(`/runs/${runId}/understanding`),
+  getChangeSafety: (runId: string) => req<ChangeAssessment[]>(`/runs/${runId}/change-safety`),
+  postChangeImpact: (runId: string, componentId: string) =>
+    req<ChangeImpact>(`/runs/${runId}/change-impact`, {
+      method: "POST",
+      body: JSON.stringify({ component_id: componentId }),
+    }),
 };

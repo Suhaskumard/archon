@@ -1,5 +1,5 @@
-"""Phase 5 scoring endpoints: legacy DNA, hotspots, technical debt, understanding
-(spec sections 27-30, 47)."""
+"""Phase 5-6 scoring endpoints: legacy DNA, hotspots, technical debt, understanding,
+change safety, change impact (spec sections 27-32, 47)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from archon.analysis.scoring.change_impact import compute_and_persist_change_impact
 from archon.api.deps import get_session
 from archon.api.schemas import (
+    ChangeAssessmentOut,
+    ChangeImpactOut,
+    ChangeImpactRequest,
     HotspotOut,
     LegacyDnaOut,
     RepositoryUnderstandingOut,
@@ -20,9 +24,12 @@ from archon.core.errors import ArchonError, ErrorCode
 from archon.db.models import (
     AnalysisArtifact,
     AnalysisRun,
+    ChangeAssessment,
+    ChangeImpact,
     Component,
     Hotspot,
     LegacyDNA,
+    RepositorySnapshot,
     TechnicalDebtFinding,
 )
 
@@ -198,3 +205,71 @@ def get_understanding(run_id: str, session: Session = Depends(get_session)) -> R
         ],
         evidence_coverage=data["evidence_coverage"],
     )
+
+
+# --- Change safety -------------------------------------------------------------------
+
+
+def _change_assessment_out(r: ChangeAssessment, qn: str | None) -> ChangeAssessmentOut:
+    return ChangeAssessmentOut(
+        id=r.id, component_id=r.component_id, component_qn=qn,
+        safety_score=r.safety_score,
+        risk_category=r.risk_category.value if hasattr(r.risk_category, "value") else r.risk_category,
+        factor_breakdown=r.factor_breakdown, recommended_preparation=r.recommended_preparation,
+        confidence=r.confidence,
+    )
+
+
+@router.get("/runs/{run_id}/change-safety", response_model=list[ChangeAssessmentOut])
+def list_change_safety(
+    run_id: str,
+    session: Session = Depends(get_session),
+    risk_category: str | None = Query(default=None),
+    component_id: str | None = Query(default=None),
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+) -> list[ChangeAssessmentOut]:
+    _run_with_snapshot(session, run_id)
+    stmt = select(ChangeAssessment).where(ChangeAssessment.run_id == run_id)
+    if risk_category:
+        stmt = stmt.where(ChangeAssessment.risk_category == risk_category.upper())
+    if component_id:
+        stmt = stmt.where(ChangeAssessment.component_id == component_id)
+    # ascending: least-safe first (mirrors Hotspot's worst-first default)
+    rows = session.scalars(
+        stmt.order_by(ChangeAssessment.safety_score.asc()).limit(limit).offset(offset)
+    ).all()
+    qn_map = _qn_map(session, [r.component_id for r in rows])
+    return [_change_assessment_out(r, qn_map.get(r.component_id)) for r in rows]
+
+
+# --- Change impact ---------------------------------------------------------------------
+
+
+def _change_impact_out(r: ChangeImpact, qn: str | None) -> ChangeImpactOut:
+    return ChangeImpactOut(
+        id=r.id, component_id=r.component_id, component_qn=qn,
+        direct_dependents=r.direct_dependents, indirect_dependents=r.indirect_dependents,
+        callers=r.callers, related_tests=r.related_tests,
+        historical_co_changes=r.historical_co_changes,
+        external_integrations=r.external_integrations, potential_impact=r.potential_impact,
+    )
+
+
+@router.post("/runs/{run_id}/change-impact", response_model=ChangeImpactOut)
+def compute_change_impact(
+    run_id: str, body: ChangeImpactRequest, session: Session = Depends(get_session),
+) -> ChangeImpactOut:
+    run = _run_with_snapshot(session, run_id)
+    comp = session.get(Component, body.component_id)
+    if comp is None:
+        raise ArchonError(ErrorCode.NOT_FOUND, f"component {body.component_id!r} not found")
+    row = session.scalar(
+        select(ChangeImpact).where(
+            ChangeImpact.run_id == run_id, ChangeImpact.component_id == body.component_id
+        )
+    )
+    if row is None:
+        snapshot = session.get(RepositorySnapshot, run.snapshot_id)
+        row = compute_and_persist_change_impact(session, run, snapshot, comp)
+    return _change_impact_out(row, comp.qualified_name)

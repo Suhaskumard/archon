@@ -17,6 +17,8 @@ Implemented stages:
     BUILDING_LEGACY_DNA        Legacy Risk score + LegacyDNA signal breakdown (Phase 5)
     ANALYZING_TECH_DEBT        13 tech-debt detectors -> TechnicalDebtFinding rows (Phase 5)
     SCORING_HOTSPOTS           Hotspot score combining Legacy DNA + tech debt (Phase 5)
+    ASSESSING_CHANGE_SAFETY    Change Safety score from coupling/centrality/callers/etc (Phase 6)
+    ANALYZING_CHANGE_IMPACT    dependents/callers/tests/co-changes per module (Phase 6)
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from archon.analysis.archaeology.reconstruct import run_archaeology
 from archon.analysis.architecture.reconstruct import reconstruct_architecture
 from archon.analysis.git.persist import analyze_git
 from archon.analysis.graph.derive import derive_edges
+from archon.analysis.scoring.change_impact import run_change_impact
+from archon.analysis.scoring.change_safety_run import run_change_safety
 from archon.analysis.scoring.hotspots import run_hotspot_scoring
 from archon.analysis.scoring.legacy_dna import run_legacy_risk
 from archon.analysis.scoring.tech_debt import run_tech_debt_detection
@@ -61,6 +65,8 @@ _ANALYSIS_STAGES = (
     Stage.BUILDING_LEGACY_DNA,
     Stage.ANALYZING_TECH_DEBT,
     Stage.SCORING_HOTSPOTS,
+    Stage.ASSESSING_CHANGE_SAFETY,
+    Stage.ANALYZING_CHANGE_IMPACT,
 )
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
@@ -88,6 +94,8 @@ class PipelineResult:
     legacy_dna: dict | None = None
     tech_debt: dict | None = None
     hotspots: dict | None = None
+    change_safety: dict | None = None
+    change_impact: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -124,6 +132,8 @@ class PipelineOrchestrator:
         legacy_dna_summary: dict | None = None
         tech_debt_summary: dict | None = None
         hotspot_summary: dict | None = None
+        change_safety_summary: dict | None = None
+        change_impact_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -166,6 +176,12 @@ class PipelineOrchestrator:
             elif stage is Stage.SCORING_HOTSPOTS:
                 assert snapshot is not None
                 hotspot_summary = self._hotspots(session, run, snapshot)
+            elif stage is Stage.ASSESSING_CHANGE_SAFETY:
+                assert snapshot is not None
+                change_safety_summary = self._change_safety(session, run, snapshot)
+            elif stage is Stage.ANALYZING_CHANGE_IMPACT:
+                assert snapshot is not None
+                change_impact_summary = self._change_impact(session, run, snapshot)
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -194,6 +210,8 @@ class PipelineOrchestrator:
             legacy_dna=legacy_dna_summary,
             tech_debt=tech_debt_summary,
             hotspots=hotspot_summary,
+            change_safety=change_safety_summary,
+            change_impact=change_impact_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -385,6 +403,26 @@ class PipelineOrchestrator:
         summary = run_hotspot_scoring(session, run, snapshot)
         log.info(
             "hotspots stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _change_safety(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = run_change_safety(session, run, snapshot)
+        log.info(
+            "change safety stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _change_impact(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = run_change_impact(session, run, snapshot)
+        log.info(
+            "change impact stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
         return summary.as_dict()

@@ -33,6 +33,9 @@ ENGINE_VERSIONS: dict[str, str] = {
     "hotspot": "hotspot.v1",
     "understanding": "understanding.v1",
     "tech_debt": "tech_debt.v1",
+    # Phase 6 - change safety & change impact
+    "change_safety": "change_safety.v1",
+    "change_impact": "change_impact.v1",
 }
 
 

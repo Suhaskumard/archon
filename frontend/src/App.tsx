@@ -4,6 +4,8 @@ import {
   type Architecture,
   type Assumption,
   type Behavior,
+  type ChangeAssessment,
+  type ChangeImpact,
   type Component,
   type Evolution,
   type Hotspot,
@@ -35,6 +37,13 @@ const HOTSPOT_COLOR: Record<string, string> = {
   WATCH: "#ffd479",
   RISKY: "#ff9d9d",
   CRITICAL: "#e5484d",
+};
+
+const CHANGE_SAFETY_COLOR: Record<string, string> = {
+  SAFE: "#7ee0a2",
+  CAUTION: "#ffd479",
+  RISKY: "#ff9d9d",
+  DANGEROUS: "#e5484d",
 };
 
 const ROLE_COLOR: Record<string, string> = {
@@ -780,6 +789,179 @@ function HotspotsPanel({ runId }: { runId: string }) {
   );
 }
 
+function ChangeSafetyPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<ChangeAssessment[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getChangeSafety(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Change Safety</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Safety</th>
+              <th>Confidence</th>
+              <th>Recommended preparation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.component_qn}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{
+                      borderColor: CHANGE_SAFETY_COLOR[r.risk_category],
+                      color: CHANGE_SAFETY_COLOR[r.risk_category],
+                    }}
+                  >
+                    {r.risk_category} · {r.safety_score.toFixed(0)}
+                  </span>
+                </td>
+                <td className="meta">{r.confidence.toFixed(2)}</td>
+                <td className="meta">
+                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    {r.recommended_preparation.map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function ChangeImpactPanel({ runId, snapshotId }: { runId: string; snapshotId: string }) {
+  const [comps, setComps] = useState<Component[] | null>(null);
+  const [selected, setSelected] = useState<string>("");
+  const [impact, setImpact] = useState<ChangeImpact | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { err, guard } = useError();
+
+  useEffect(() => {
+    let live = true;
+    api
+      .listComponents(snapshotId, "&kind=MODULE")
+      .then((c) => {
+        if (!live) return;
+        setComps(c);
+        if (c.length > 0) setSelected(c[0].id);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [snapshotId]);
+
+  const compute = () =>
+    guard(async () => {
+      if (!selected) return;
+      setBusy(true);
+      setImpact(null);
+      try {
+        setImpact(await api.postChangeImpact(runId, selected));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+  if (!comps || comps.length === 0) return null;
+
+  return (
+    <>
+      <h2>Change Impact</h2>
+      <div className="card">
+        <div className="row">
+          <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+            {comps.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.qualified_name}
+              </option>
+            ))}
+          </select>
+          <button className="primary" disabled={busy || !selected} onClick={() => void compute()}>
+            {busy ? "Computing…" : "Compute impact"}
+          </button>
+        </div>
+        {err && <p className="err">{err}</p>}
+        {impact && (
+          <div style={{ marginTop: 8 }}>
+            <div className="meta">
+              <b>Direct dependents:</b>{" "}
+              {impact.direct_dependents.length > 0
+                ? impact.direct_dependents.map((d) => d.qualified_name).join(", ")
+                : "none"}
+            </div>
+            <div className="meta">
+              <b>Indirect dependents:</b>{" "}
+              {impact.indirect_dependents.length > 0
+                ? impact.indirect_dependents.map((d) => d.qualified_name).join(", ")
+                : "none"}
+            </div>
+            <div className="meta">
+              <b>Callers:</b>{" "}
+              {impact.callers.length > 0 ? impact.callers.map((d) => d.qualified_name).join(", ") : "none"}
+            </div>
+            <div className="meta">
+              <b>Related tests:</b>{" "}
+              {impact.related_tests.length > 0
+                ? impact.related_tests.map((d) => d.qualified_name).join(", ")
+                : "none found"}
+            </div>
+            <div className="meta">
+              <b>Historical co-changes:</b>{" "}
+              {impact.historical_co_changes.length > 0
+                ? impact.historical_co_changes
+                    .map((d) => `${d.qualified_name} (${d.count})`)
+                    .join(", ")
+                : "none"}
+            </div>
+            <div className="meta">
+              <b>External integrations:</b>{" "}
+              {impact.external_integrations.length > 0
+                ? impact.external_integrations.map((d) => d.target_name).join(", ")
+                : "none"}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <b>What could break</b>
+              <ul className="meta">
+                {impact.potential_impact.what_could_break.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+              <b>Which tests to run</b>
+              <ul className="meta">
+                {impact.potential_impact.tests_to_run.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+              <b>What to do first</b>
+              <ul className="meta">
+                {impact.potential_impact.what_to_do_first.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -865,6 +1047,8 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <LegacyDnaPanel runId={run.id} />
               <TechnicalDebtPanel runId={run.id} />
               <HotspotsPanel runId={run.id} />
+              <ChangeSafetyPanel runId={run.id} />
+              <ChangeImpactPanel runId={run.id} snapshotId={run.snapshot_id} />
             </>
           )}
 

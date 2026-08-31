@@ -47,7 +47,7 @@ contracts later phases must honour. It is the source of truth the spec demands (
 | `analysis/graph` | Phase 3 - NetworkX component + module graphs; derives `DEPENDS_ON` / `TESTED_BY`; cycle detection. |
 | `analysis/architecture` | Phase 3 - role inference (`roles.v1`) + coupling/centrality metrics + layering check + graph artifact. |
 | `analysis/archaeology` | Phase 4 - deterministic behaviour facts + hidden-assumption heuristics + the first AI step. |
-| `analysis/scoring` | Phase 5 - Legacy Risk, Hotspot, Repository Understanding, tech-debt detectors. |
+| `analysis/scoring` | Phase 5 - Legacy Risk, Hotspot, Repository Understanding, tech-debt detectors. Phase 6 - Change Safety, Change Impact. |
 | `providers/repo` | `RepositoryProvider` ABC, `LocalRepositoryProvider`, `GitHubRepositoryProvider`, `gitcli` safe wrapper. |
 | `providers/ai` | Phase 4 - `AIProvider` ABC + validation pipeline, `MockAIProvider` (deterministic, offline), `get_ai_provider()`. |
 | `workspace` | `WorkspaceManager` — disposable, quota-checked, path-traversal-safe checkout dirs. |
@@ -81,6 +81,8 @@ analysis-output row carries `run_id`; snapshots are immutable once written.
 | `legacy_dna` _(0005, Phase 5)_ | Full Legacy Risk signal breakdown per component. | `run_id`, `snapshot_id`, `component_id` (unique per run), `age_days`, `complexity`, `churn`, `coupling`, `coverage`, `coverage_is_proxy`, `failure_count`, `assumption_count`, `debt_score`, `legacy_risk_score`, `category`, `confidence`, `factor_breakdown` (JSON) |
 | `technical_debt_findings` _(0005, Phase 5)_ | One tech-debt detector hit. | `run_id`, `snapshot_id`, `component_id` (nullable), `category`, `location` (`path:line`), `evidence`, `severity`, `impact`, `confidence`, `recommendation`, `evidence_id` |
 | `hotspots` _(0005, Phase 5)_ | Hotspot classification per component. | `run_id`, `snapshot_id`, `component_id` (unique per run), `score`, `classification`, `reasons` (JSON), `evidence_ids`, `engine_version` |
+| `change_assessments` _(0006, Phase 6)_ | Change Safety score per component - standalone, not a `RiskAssessment` row (incompatible category vocabulary, see §14). | `run_id`, `snapshot_id`, `component_id`, `engine_version`, `safety_score`, `risk_category`, `factor_breakdown` (JSON), `recommended_preparation` (JSON list), `confidence`, `evidence_ids`, `produced_by` |
+| `change_impacts` _(0006, Phase 6)_ | Change Impact traversal result per component - factual, not scored (no `confidence`/`evidence_ids`). | `run_id`, `snapshot_id`, `component_id` (unique per run), `direct_dependents`/`indirect_dependents`/`callers`/`related_tests`/`historical_co_changes`/`external_integrations` (JSON lists), `potential_impact` (JSON dict), `engine_version` |
 
 `dependencies.kind` is a plain `VARCHAR` via the `EnumString` type decorator
 (`db/types.py`), not a DB `CHECK` — the `DependencyKind` vocabulary grows every phase
@@ -89,7 +91,7 @@ CHANGED_BY/CHANGED_WITH; later: FAILED_IN/FIXED_BY/AFFECTS) and validation happe
 app boundary. Migration `0003` drops+recreates the (fully derived) `dependencies` table to
 apply the widening.
 
-Later phases add further tables (e.g. `change_assessments`) as incremental migrations on
+Later phases add further tables as incremental migrations on
 this baseline.
 
 ---
@@ -122,12 +124,12 @@ COMPLETED / FAILED / CANCELLED are terminal (no outgoing edges).
 | mode | executed stages |
 |---|---|
 | `INGEST_ONLY` | INGESTING → SNAPSHOTTING |
-| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING → SCORING_UNDERSTANDING → BUILDING_LEGACY_DNA → ANALYZING_TECH_DEBT → SCORING_HOTSPOTS _(+ later phases)_ |
+| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING → SCORING_UNDERSTANDING → BUILDING_LEGACY_DNA → ANALYZING_TECH_DEBT → SCORING_HOTSPOTS → ASSESSING_CHANGE_SAFETY → ANALYZING_CHANGE_IMPACT _(+ later phases)_ |
 
 Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**,
 **ANALYZING_GIT**, **BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**, **ARCHAEOLOGIZING**,
 **SCORING_UNDERSTANDING**, **BUILDING_LEGACY_DNA**, **ANALYZING_TECH_DEBT**,
-**SCORING_HOTSPOTS**.
+**SCORING_HOTSPOTS**, **ASSESSING_CHANGE_SAFETY**, **ANALYZING_CHANGE_IMPACT**.
 Tests read the last stage via `tests/conftest.terminal_stage(mode)` instead of pinning a
 literal, so a new phase no longer ripples through every test.
 
@@ -376,14 +378,13 @@ than silently drops.
 
 ---
 
-## 12. Scoring engines — Change Safety & Patch Ranking _(declared; implemented Phases 6, 9+)_
+## 12. Scoring engines — Patch Ranking _(declared; implemented Phase 9+)_
 
-Change Safety and Patch Ranking remain declared-only: each will be a versioned module
-under `archon/analysis/scoring/` with an explicit signal set, normalisation, weights in a
+Patch Ranking remains declared-only: it will be a versioned module under
+`archon/analysis/scoring/` with an explicit signal set, normalisation, weights in a
 versioned config, a formula, thresholds, categories, `explain()`, and property-based
-acceptance tests (§5–7, §60), following the same shape Phase 5 established for its four
-engines (§13). The `core/versions` registry already exists to pin their versions onto
-each `AnalysisRun`.
+acceptance tests (§5–7, §60), following the same shape Phases 5-6 established (§13-14).
+The `core/versions` registry already exists to pin its version onto each `AnalysisRun`.
 
 ---
 
@@ -403,8 +404,10 @@ until Phase 9) are omitted from the signal set entirely rather than defaulted to
 "zero risk". Persists **both** a `LegacyDNA` row (the full signal breakdown - complexity,
 churn, coupling, coverage, debt, age, confidence) and a `RiskAssessment` row
 (`engine_version="legacy_risk.v1"`, generic score/category/confidence). `RiskAssessment`
-is deliberately engine-agnostic so Change Safety (Phase 6) and Patch Ranking (later) can
-write to the same table without a schema change; `LegacyDNA` stays Legacy-Risk-specific.
+is reusable by any future engine sharing its LOW/MODERATE/HIGH/CRITICAL vocabulary
+(Patch Ranking, later); Change Safety (Phase 6, §14) uses an incompatible
+SAFE/CAUTION/RISKY/DANGEROUS vocabulary and deliberately does **not** write here - see
+§14's rationale. `LegacyDNA` stays Legacy-Risk-specific either way.
 
 **Hotspot** (`hotspot.v1`) - the same normalized signal set, with a multiplicative
 "signals overlap" bonus when ≥3 signals are independently elevated (spec sec 29). Runs
@@ -448,3 +451,63 @@ defaulted in the confidence calculation - never presented as measured coverage.
 `GET /runs/{id}/hotspots`, `GET /runs/{id}/technical-debt`,
 `GET /runs/{id}/understanding`. **Frontend:** Repository Understanding, Legacy DNA,
 Technical Debt, Hotspots.
+
+---
+
+## 14. Change Safety & Change Impact (Phase 6, §31-32)
+
+Two more deterministic engines - no AI - under `archon/analysis/scoring/`, run as the
+last two stages of `ANALYSIS_ONLY`/`FULL`: `ASSESSING_CHANGE_SAFETY →
+ANALYZING_CHANGE_IMPACT`. Both source signals from data Phases 2-5 already persisted,
+including - for the first time - a cross-engine read of *this run's own* Phase 5 rows.
+
+**Change Safety** (`change_safety.v1`) - the sign convention is the inverse of every
+other scoring engine: **higher = safer**, not riskier. Each negative-direction signal
+(complexity, coupling, dependency centrality, caller risk, hidden assumptions, churn) is
+inverted (`1 - normalized`) *before* weighting, so the weighted sum is natively a safety
+sum rather than a risk-sum-then-`100 - x` - this keeps `explain()`'s per-factor
+contributions directly interpretable ("how much this factor added to safety") and avoids
+a second sign-flip bug surface. Coverage is used directly (already "higher = safer", no
+inversion) and remains the same `TESTED_BY`-edge proxy Phase 5 used - always flagged and
+always counted as defaulted for confidence. Historical change-success rate and
+historical failures have no data until Phase 9+ and are omitted entirely from both the
+signal set and the confidence denominator.
+
+The one genuinely new signal is **callers-at-risk**: for each caller reached via a
+Phase 2 `CALLS` edge, its *this-run* `LegacyDNA.category` (HIGH/CRITICAL) and
+`Hotspot.classification` (RISKY/CRITICAL) - both Phase 5 tables, already populated
+earlier in the same pipeline run - decide whether that caller counts as "at risk";
+`caller_risk_ratio = at_risk_callers / total_callers`. Results persist to a **standalone**
+`ChangeAssessment` table, not a `RiskAssessment` row: `RiskAssessment.category` is a
+closed `_enum(RiskCategory)` (LOW/MODERATE/HIGH/CRITICAL), incompatible with Change
+Safety's SAFE/CAUTION/RISKY/DANGEROUS vocabulary. Widening that column to a shared
+`EnumString` would let two unrelated vocabularies collide in one query for no present
+benefit, so `ChangeAssessment` gets its own table and category enum instead, exactly as
+the plan doc's own data model specified. Snapshot-cached like Legacy Risk (clone from a
+prior run over the same snapshot) - safe because the caller-risk signal it reads is
+itself cloned identically when the snapshot is unchanged.
+
+**Change Impact** (`change_impact.v1`) - for a target component, resolved to its owning
+MODULE, reuses `analysis/graph/builder.py::build_module_graph` as-is (no new graph code):
+direct dependents = `mg.predecessors(node)`, indirect dependents =
+`nx.ancestors(mg, node) - direct - {node}` (edges point dependent→dependency, so a
+node's ancestors are exactly its transitive dependents). Callers come from Phase 2
+`CALLS` edges, related tests from Phase 3 `TESTED_BY` edges, historical co-changes from
+Phase 4 `CHANGED_WITH` edges (read directly, no recomputation), and external
+integrations from the module's own `external=True` Dependency rows. The "what could
+break / which tests to run / what to do first" narrative is a deterministic template,
+not AI - consistent with every Phase 5-6 engine.
+
+**Pipeline stage vs. on-demand POST, reconciled:** the spec calls Change Impact out as
+"for a selected component" with a `POST` verb, yet `ANALYZING_CHANGE_IMPACT` is a fixed
+pipeline stage per `jobs/state_machine.py::STAGE_ORDER`. Resolution: the stage
+precomputes a `ChangeImpact` row for every MODULE component (cheap - pure graph/query
+reads, no AI, so no cost cap is needed the way Phase 4 capped AI calls);
+`POST /runs/{id}/change-impact` accepts `{"component_id"}` and returns the existing row
+if already computed, otherwise computes-and-upserts one on demand for any other
+component (typically a FUNCTION/METHOD/CLASS). `ChangeImpact` itself has no run-to-run
+caching (deliberately simpler than Change Safety's) - it's cheap enough to always
+recompute, and the on-demand path only ever checks the current run's own rows.
+
+**API:** `GET /runs/{id}/change-safety` (ascending by score - least-safe first),
+`POST /runs/{id}/change-impact`. **Frontend:** Change Safety, Change Impact.

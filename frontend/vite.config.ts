@@ -11,6 +11,8 @@ export default defineConfig({
     proxy: {
       "/repositories": API,
       "/runs": API,
+      "/snapshots": API,
+      "/components": API,
       "/healthz": API,
       "/openapi.json": API,
     },

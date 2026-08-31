@@ -79,6 +79,19 @@ class RiskCategory(str, enum.Enum):
     CRITICAL = "CRITICAL"
 
 
+class ChangeSafetyCategory(str, enum.Enum):
+    """Change Safety score bucket (spec sections 31-32).
+
+    Higher score = safer - the inverse sense of RiskCategory/HotspotClassification
+    (see analysis/scoring/change_safety.py for the sign-flip handling).
+    """
+
+    SAFE = "SAFE"
+    CAUTION = "CAUTION"
+    RISKY = "RISKY"
+    DANGEROUS = "DANGEROUS"
+
+
 class HotspotClassification(str, enum.Enum):
     """Hotspot score bucket (spec section 29)."""
 

@@ -1,4 +1,4 @@
-"""Versioned weights/thresholds for the Phase 5 scoring engines (spec sections 27-30).
+"""Versioned weights/thresholds for the Phase 5-6 scoring engines (spec sections 27-32).
 
 Every magic number the scoring engines use lives here so a future version bump touches
 one file. Changing a value here should bump the relevant ``*_VERSION`` constant in its
@@ -86,3 +86,21 @@ DEBT_SCORE_MAX = 20.0  # weighted-severity sum that normalizes debt_score to 1.0
 LEGACY_RISK_DEBT_SUBSET = (
     "LONG_FUNCTION", "LARGE_CLASS", "CIRCULAR_DEPENDENCY", "HIGH_COUPLING",
 )
+
+# --- Change Safety weights (change_safety.v1, spec sec 31) --------------------------
+# Higher score = safer (the inverse sense of Legacy Risk/Hotspot) - every negative-
+# direction signal is inverted (1 - normalized) before weighting; see change_safety.py.
+CHANGE_SAFETY_WEIGHTS: dict[str, float] = {
+    "coverage": 0.20,
+    "complexity": 0.15,
+    "coupling": 0.15,
+    "centrality": 0.15,
+    "caller_risk_ratio": 0.20,
+    "assumption_count": 0.05,
+    "churn": 0.10,
+}
+# score >= CAUTION -> SAFE; >= RISKY -> CAUTION; >= DANGEROUS -> RISKY; else DANGEROUS.
+CHANGE_SAFETY_THRESHOLDS: dict[str, float] = {"DANGEROUS": 25.0, "RISKY": 50.0, "CAUTION": 75.0}
+CENTRALITY_SCALE = 1.0  # betweenness_centrality is already in [0, 1]
+# a normalized safe_norm below this is "elevated concern" for recommended_preparation
+CHANGE_SAFETY_CONCERN_THRESHOLD = 0.5

@@ -299,3 +299,34 @@ class RepositoryUnderstandingOut(BaseModel):
     confidence: float
     dimensions: list[UnderstandingDimensionOut]
     evidence_coverage: dict
+
+
+# --- Phase 6: change safety & change impact -----------------------------------------
+
+
+class ChangeAssessmentOut(BaseModel):
+    id: str
+    component_id: str
+    component_qn: str | None = None
+    safety_score: float
+    risk_category: str
+    factor_breakdown: dict
+    recommended_preparation: list[str]
+    confidence: float
+
+
+class ChangeImpactRequest(BaseModel):
+    component_id: str = Field(min_length=1)
+
+
+class ChangeImpactOut(BaseModel):
+    id: str
+    component_id: str
+    component_qn: str | None = None
+    direct_dependents: list[dict]
+    indirect_dependents: list[dict]
+    callers: list[dict]
+    related_tests: list[dict]
+    historical_co_changes: list[dict]
+    external_integrations: list[dict]
+    potential_impact: dict

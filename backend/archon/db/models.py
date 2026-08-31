@@ -30,6 +30,7 @@ from archon.core.ids import new_id
 from archon.db.base import Base
 from archon.db.types import EnumString
 from archon.domain.enums import (
+    ChangeSafetyCategory,
     Classification,
     ComponentKind,
     DependencyKind,
@@ -387,11 +388,14 @@ class BehaviorReconstruction(Base, TimestampMixin):
 
 
 class RiskAssessment(Base, TimestampMixin):
-    """Generic scoring-engine output row (spec sections 27, 60).
+    """Generic scoring-engine output row for the LOW/MODERATE/HIGH/CRITICAL
+    (``RiskCategory``) family of engines (spec sections 27, 60).
 
-    Reused by every future scoring engine (Change Safety in Phase 6, Patch Ranking
-    later) via ``engine_version`` - do not add engine-specific columns here; put those
-    in an engine-specific detail table (see ``LegacyDNA`` for Legacy Risk's).
+    Reused by every future engine that shares that vocabulary via ``engine_version`` -
+    do not add engine-specific columns here; put those in an engine-specific detail
+    table (see ``LegacyDNA`` for Legacy Risk's). Change Safety (Phase 6) uses its own
+    SAFE/CAUTION/RISKY/DANGEROUS vocabulary and is deliberately NOT stored here - see
+    ``ChangeAssessment`` and docs/PHASE_6_COMPLETION.md for the rationale.
     """
 
     __tablename__ = "risk_assessments"
@@ -516,11 +520,87 @@ class Hotspot(Base, TimestampMixin):
     engine_version: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class ChangeAssessment(Base, TimestampMixin):
+    """Change Safety score for one component (spec sections 31-32, 60).
+
+    Standalone table, not a ``RiskAssessment`` row - its category vocabulary
+    (SAFE/CAUTION/RISKY/DANGEROUS) is incompatible with ``RiskCategory``. See
+    ``RiskAssessment``'s docstring and docs/PHASE_6_COMPLETION.md.
+    """
+
+    __tablename__ = "change_assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "component_id", "engine_version",
+            name="uq_change_assessment_run_component_engine",
+        ),
+        Index("ix_change_assessment_run_category", "run_id", "risk_category"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("chsf"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    engine_version: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    safety_score: Mapped[float] = mapped_column(Float, nullable=False)
+    risk_category: Mapped[ChangeSafetyCategory] = mapped_column(
+        _enum(ChangeSafetyCategory), nullable=False
+    )
+    factor_breakdown: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    recommended_preparation: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    evidence_ids: Mapped[list | None] = mapped_column(JSON)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class ChangeImpact(Base, TimestampMixin):
+    """Change Impact analysis for one component (spec sections 31-32).
+
+    Precomputed for every MODULE component by the ``ANALYZING_CHANGE_IMPACT`` stage;
+    upserted on demand for any other component via ``POST /runs/{id}/change-impact``.
+    A factual traversal result, not a scored judgment - no ``confidence``/``evidence_ids``
+    (matches the spec's field list for this table exactly).
+    """
+
+    __tablename__ = "change_impacts"
+    __table_args__ = (
+        UniqueConstraint("run_id", "component_id", name="uq_change_impact_run_component"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("chim"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    component_id: Mapped[str] = mapped_column(
+        ForeignKey("components.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    direct_dependents: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    indirect_dependents: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    callers: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    related_tests: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    historical_co_changes: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    external_integrations: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    potential_impact: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
     "Assumption",
     "BehaviorReconstruction",
+    "ChangeAssessment",
+    "ChangeImpact",
     "Commit",
     "Component",
     "Dependency",
