@@ -51,7 +51,7 @@ from archon.workspace.manager import Workspace
 log = get_logger("archon.testing.characterization")
 
 CHARACTERIZATION_VERSION = "characterization.v1"
-_MAX_TARGETS = 5
+_MAX_TARGETS = 3
 _BOUNDED_VALUES = (0, 1, -1, "")
 
 

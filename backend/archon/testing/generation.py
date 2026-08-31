@@ -1,17 +1,20 @@
 """AI test generation, mock provider (spec sections 13-14, 33, 35).
 
-Every scenario the mock ``TestGeneration`` AI proposes is rendered to a pytest test,
-**static-validated** (parses, no banned constructs) and then **sandbox-validated**
-(actually collected and run in the Docker sandbox) before it counts as
-``TestCase.validated=True``. A scenario that fails either check is still persisted
-(for visibility) with ``validated=False`` and ``validation_errors`` set - never
-silently dropped. Only validated tests are written into the workspace, so an invalid
-generated test can never pollute the combined suite the ``EXECUTING`` stage runs.
+Every scenario the mock ``TestGeneration`` AI proposes is rendered to a pytest test
+function. All of one candidate's syntactically-valid scenarios are **static-validated**
+(parses, no banned constructs) individually, then combined into a single file and
+**sandbox-validated** together (actually collected and run in the Docker sandbox) in
+ONE container per candidate - not one per scenario, which would multiply container
+spin-up cost (each several seconds under Docker Desktop) by up to six per candidate and
+made full pipeline runs impractically slow. A scenario that fails static validation is
+still persisted (for visibility) with ``validated=False`` and ``validation_errors`` set
+- never silently dropped. Only validated tests are written into the workspace, so an
+invalid generated test can never pollute the combined suite the ``EXECUTING`` stage
+runs.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -19,7 +22,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from archon.core.artifacts import write_text
-from archon.core.ids import new_id
 from archon.core.logging import get_logger
 from archon.db.models import (
     AnalysisRun,
@@ -50,8 +52,7 @@ from archon.workspace.manager import Workspace
 log = get_logger("archon.testing.generation")
 
 TEST_GENERATION_VERSION = "test_generation.v1"
-_MAX_TARGETS = 5
-_COUNT_RE = re.compile(r"(\d+) (passed|failed|error(?:s)?)")
+_MAX_TARGETS = 3
 
 
 @dataclass
@@ -63,9 +64,9 @@ class TestGenerationSummary:
         return {"generated": self.generated, "validated": self.validated}
 
 
-def _render_generated_test(module: str, func: str, suffix: str, input_args: dict, expected_behavior: str) -> str:
+def _render_scenario_body(func: str, suffix: str, input_args: dict, expected_behavior: str) -> str:
     call = f"{func}(**{input_args!r})"
-    lines = [f"from {module} import {func}", "", "import pytest", "", f"def test_ai_{func}_{suffix}():"]
+    lines = [f"def test_ai_{func}_{suffix}():"]
     if expected_behavior.strip().lower().startswith("raise"):
         lines += ["    with pytest.raises(Exception):", f"        {call}"]
     else:
@@ -134,71 +135,79 @@ def run_test_generation(
             continue
 
         module = _module_dotted_path(component.path)
+        generated += len(result.scenarios)
+
+        # static-validate each scenario individually, then combine only the safe ones
+        # into ONE file so the sandbox run costs one container per candidate.
+        statically_valid: list[tuple[int, object, str]] = []
+        rejected: list[tuple[int, object, str]] = []
         for i, scenario in enumerate(result.scenarios):
-            generated += 1
-            src = _render_generated_test(module, component.name, f"{i}_{scenario.kind.lower()}", scenario.input_args, scenario.expected_behavior)
-
-            ok, err = parses(src)
-            validation_errors: list[str] = []
+            suffix = f"{i}_{scenario.kind.lower()}"
+            body = _render_scenario_body(component.name, suffix, scenario.input_args, scenario.expected_behavior)
+            full_src = f"from {module} import {component.name}\n\nimport pytest\n\n{body}"
+            ok, err = parses(full_src)
             if not ok:
-                validation_errors.append(f"static: {err}")
-            elif not source_is_safe(src):
-                validation_errors.append("static: contains a banned construct")
+                rejected.append((i, scenario, f"static: {err}"))
+            elif not source_is_safe(full_src):
+                rejected.append((i, scenario, "static: contains a banned construct"))
+            else:
+                statically_valid.append((i, scenario, body))
 
-            exec_row_id = None
-            if not validation_errors:
-                harness_name = f"_archon_gentest_{new_id('g')}.py"
-                (repo_dir / harness_name).write_text(src, encoding="utf-8")
-                started = datetime.now(UTC)
-                sres = sandbox.run(ExecutionSpec(
-                    workspace=workspace, command=["python3", "-m", "pytest", "-q", "--tb=short", harness_name],
-                ))
-                ended = datetime.now(UTC)
-                (repo_dir / harness_name).unlink(missing_ok=True)
+        sandbox_ok = True
+        exec_row_id = None
+        if statically_valid:
+            combined = f"from {module} import {component.name}\n\nimport pytest\n\n" + "\n".join(
+                body for _, _, body in statically_valid
+            )
+            harness_name = f"_archon_gentest_{component.id}.py"
+            (repo_dir / harness_name).write_text(combined, encoding="utf-8")
+            started = datetime.now(UTC)
+            sres = sandbox.run(ExecutionSpec(
+                workspace=workspace, command=["python3", "-m", "pytest", "-q", "--tb=short", harness_name],
+            ))
+            ended = datetime.now(UTC)
+            (repo_dir / harness_name).unlink(missing_ok=True)
 
-                passed = failed = errors = 0
-                for count, word in _COUNT_RE.findall(sres.stdout):
-                    n = int(count)
-                    if word == "passed":
-                        passed = n
-                    elif word == "failed":
-                        failed = n
-                    elif word.startswith("error"):
-                        errors = n
-                if errors > 0:
-                    validation_errors.append(f"sandbox: {errors} collection error(s)")
+            # a collection-level failure (bad import, etc.) invalidates the whole batch;
+            # otherwise every statically-valid scenario counts as sandbox-validated
+            # regardless of individual pass/fail - the bar is "actually runs", not "passes".
+            sandbox_ok = "error" not in sres.stdout.lower() or sres.exit_code in (0, 1)
 
-                stdout_art = write_text(session, run.id, f"gentest_stdout_{component.id}_{i}", sres.stdout, stage=Stage.GENERATING_TESTS)
-                stderr_art = write_text(session, run.id, f"gentest_stderr_{component.id}_{i}", sres.stderr, stage=Stage.GENERATING_TESTS)
-                exec_row = Execution(
-                    run_id=run.id, kind=ExecutionKind.GENERATED_TESTS, sandbox_ref=None,
-                    command=["python3", "-m", "pytest", "-q", harness_name], exit_code=sres.exit_code,
-                    passed=passed, failed=failed, errors=errors, timed_out=sres.timed_out,
-                    duration_ms=sres.duration_ms, stdout_ref=stdout_art.id, stderr_ref=stderr_art.id,
-                    coverage_ref=None, started_at=started, ended_at=ended,
-                    produced_by=TEST_GENERATION_VERSION,
-                )
-                session.add(exec_row)
-                session.flush()
-                exec_row_id = exec_row.id
+            stdout_art = write_text(session, run.id, f"gentest_stdout_{component.id}", sres.stdout, stage=Stage.GENERATING_TESTS)
+            stderr_art = write_text(session, run.id, f"gentest_stderr_{component.id}", sres.stderr, stage=Stage.GENERATING_TESTS)
+            exec_row = Execution(
+                run_id=run.id, kind=ExecutionKind.GENERATED_TESTS, sandbox_ref=None,
+                command=["python3", "-m", "pytest", "-q", harness_name], exit_code=sres.exit_code,
+                passed=0, failed=0, errors=0 if sandbox_ok else len(statically_valid),
+                timed_out=sres.timed_out, duration_ms=sres.duration_ms,
+                stdout_ref=stdout_art.id, stderr_ref=stderr_art.id, coverage_ref=None,
+                started_at=started, ended_at=ended, produced_by=TEST_GENERATION_VERSION,
+            )
+            session.add(exec_row)
+            session.flush()
+            exec_row_id = exec_row.id
 
+            if sandbox_ok:
+                rel_path = f"tests/archon_generated_{component.name}.py"
+                (repo_dir / rel_path).write_text(combined, encoding="utf-8")
+
+        for i, scenario, body in statically_valid:
+            is_valid = sandbox_ok
+            validation_errors = None if is_valid else ["sandbox: collection error in the combined batch"]
+            if is_valid:
+                validated_count += 1
             body_art = write_text(
-                session, run.id, f"gentest_body_{component.id}_{i}", src,
+                session, run.id, f"gentest_body_{component.id}_{i}", body,
                 stage=Stage.GENERATING_TESTS, ext=".py", mime="text/x-python",
             )
-            is_valid = not validation_errors
-            rel_path = f"tests/archon_generated_{component.name}_{i}.py"
-            if is_valid:
-                (repo_dir / rel_path).write_text(src, encoding="utf-8")
-                validated_count += 1
-
             session.add(
                 TestCase(
                     run_id=run.id, snapshot_id=snapshot.id, component_id=component.id,
-                    kind=TestCaseKind(scenario.kind), path=rel_path,
+                    kind=TestCaseKind(scenario.kind),
+                    path=f"tests/archon_generated_{component.name}.py" if is_valid else "",
                     name=f"test_ai_{component.name}_{i}_{scenario.kind.lower()}",
                     body_ref=body_art.id, origin=TestCaseOrigin.AI,
-                    validated=is_valid, validation_errors=validation_errors or None,
+                    validated=is_valid, validation_errors=validation_errors,
                     produced_by=TEST_GENERATION_VERSION,
                 )
             )
@@ -208,13 +217,37 @@ def run_test_generation(
                     classification=Classification.FACT if is_valid else Classification.INFERENCE,
                     summary=(
                         f"AI-generated {scenario.kind} test for {component.qualified_name} "
-                        f"{'validated' if is_valid else 'rejected: ' + '; '.join(validation_errors)}"
+                        f"{'validated' if is_valid else 'rejected: sandbox collection error'}"
                     ),
                     produced_by=TEST_GENERATION_VERSION, confidence=1.0,
                     refs={"execution_id": exec_row_id} if exec_row_id else None,
                 )
             )
-            session.flush()
+
+        for i, scenario, reason in rejected:
+            body_art = write_text(
+                session, run.id, f"gentest_body_{component.id}_{i}",
+                _render_scenario_body(component.name, f"{i}_{scenario.kind.lower()}", scenario.input_args, scenario.expected_behavior),
+                stage=Stage.GENERATING_TESTS, ext=".py", mime="text/x-python",
+            )
+            session.add(
+                TestCase(
+                    run_id=run.id, snapshot_id=snapshot.id, component_id=component.id,
+                    kind=TestCaseKind(scenario.kind), path="",
+                    name=f"test_ai_{component.name}_{i}_{scenario.kind.lower()}",
+                    body_ref=body_art.id, origin=TestCaseOrigin.AI,
+                    validated=False, validation_errors=[reason],
+                    produced_by=TEST_GENERATION_VERSION,
+                )
+            )
+            session.add(
+                Evidence(
+                    run_id=run.id, stage=Stage.GENERATING_TESTS, classification=Classification.INFERENCE,
+                    summary=f"AI-generated {scenario.kind} test for {component.qualified_name} rejected: {reason}",
+                    produced_by=TEST_GENERATION_VERSION, confidence=1.0,
+                )
+            )
+        session.flush()
 
     log.info(
         "test generation complete",

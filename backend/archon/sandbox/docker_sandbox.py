@@ -34,6 +34,7 @@ log = get_logger("archon.sandbox")
 
 _UID_GID = "1000:1000"
 _SLEEP_BUFFER_SECONDS = 30  # placeholder process outlives the real command by this much
+_CONTROL_TIMEOUT_SECONDS = 30  # docker create/start/cp calls fail fast instead of hanging
 
 
 def _docker(args: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
@@ -115,7 +116,14 @@ class DockerSandbox(Sandbox):
             self.image,
             *placeholder,
         ]
-        proc = _docker(args)
+        try:
+            proc = _docker(args, timeout=_CONTROL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise ArchonError(
+                ErrorCode.SANDBOX_UNAVAILABLE, "docker create timed out",
+                recoverability=Recoverability.TRANSIENT,
+                suggested_action="Check Docker Desktop is responsive and retry.",
+            ) from exc
         if proc.returncode != 0:
             if _is_daemon_unreachable(proc.stderr):
                 raise ArchonError(
@@ -133,7 +141,13 @@ class DockerSandbox(Sandbox):
         return proc.stdout.strip()
 
     def _start(self, container_id: str) -> None:
-        proc = _docker(["start", container_id])
+        try:
+            proc = _docker(["start", container_id], timeout=_CONTROL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise ArchonError(
+                ErrorCode.CONTAINER_START_FAILED, "docker start timed out",
+                recoverability=Recoverability.TRANSIENT,
+            ) from exc
         if proc.returncode != 0:
             raise ArchonError(
                 ErrorCode.CONTAINER_START_FAILED, "docker start failed",
@@ -157,10 +171,17 @@ class DockerSandbox(Sandbox):
                 context={"stderr": redact(tar_proc.stderr.decode(errors="replace").strip())[:1000]},
                 recoverability=Recoverability.TRANSIENT,
             )
-        proc = subprocess.run(
-            ["docker", "exec", "-i", container_id, "sh", "-c", "mkdir -p /work && tar -xf - -C /work"],
-            input=tar_proc.stdout, capture_output=True, shell=False, check=False,
-        )
+        try:
+            proc = subprocess.run(
+                ["docker", "exec", "-i", container_id, "sh", "-c", "mkdir -p /work && tar -xf - -C /work"],
+                input=tar_proc.stdout, capture_output=True, shell=False, check=False,
+                timeout=_CONTROL_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ArchonError(
+                ErrorCode.CONTAINER_START_FAILED, "copying the workspace into the sandbox timed out",
+                recoverability=Recoverability.TRANSIENT,
+            ) from exc
         if proc.returncode != 0:
             raise ArchonError(
                 ErrorCode.CONTAINER_START_FAILED, "failed to copy workspace into sandbox",
@@ -190,10 +211,15 @@ class DockerSandbox(Sandbox):
         # A plain mkdtemp (not TemporaryDirectory) - it must outlive this method so the
         # caller can read the files; the caller (execution runner) removes it once done.
         local_out = Path(tempfile.mkdtemp(prefix="archon-sandbox-out-"))
-        tar_proc = subprocess.run(
-            ["docker", "exec", container_id, "tar", "-cf", "-", "-C", f"/work/{spec.out_dir}", "."],
-            capture_output=True, shell=False, check=False,
-        )
+        try:
+            tar_proc = subprocess.run(
+                ["docker", "exec", container_id, "tar", "-cf", "-", "-C", f"/work/{spec.out_dir}", "."],
+                capture_output=True, shell=False, check=False,
+                timeout=_CONTROL_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("copying sandbox output out timed out", extra={"extra_fields": {"container": container_id}})
+            return {}
         if tar_proc.returncode != 0:
             # out dir may legitimately be empty/absent (e.g. killed before mkdir ran) -
             # never fail the whole execution over missing output artifacts.

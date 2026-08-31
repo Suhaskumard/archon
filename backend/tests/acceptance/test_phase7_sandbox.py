@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from archon.db.base import session_scope
 from archon.db.models import AnalysisRun, Execution, Job, Repository, TestCase
-from archon.domain.enums import JobState, RunMode, RunState
+from archon.domain.enums import ExecutionKind, JobState, RunMode, RunState, TestCaseKind
 from archon.jobs.manager import JobManager
 from archon.jobs.worker import Worker
 from archon.providers.repo import provider_for
@@ -52,13 +52,19 @@ def test_normal_suite_runs_and_results_are_captured(test_repo):
     rid = _run(test_repo)
     with session_scope() as s:
         run = s.get(AnalysisRun, rid)
-        test_cases = s.scalars(select(TestCase).where(TestCase.run_id == rid)).all()
+        # Phase 8 adds characterization/AI-generated TestCase rows on top of the 2
+        # existing ones discovered by Phase 7 - this contract is about EXISTING only.
+        test_cases = s.scalars(
+            select(TestCase).where(TestCase.run_id == rid, TestCase.kind == TestCaseKind.EXISTING)
+        ).all()
         assert len(test_cases) == 2
         assert {tc.name for tc in test_cases} == {
             "tests.test_calculator.test_add", "tests.test_billing.test_line_total",
         }
 
-        execution = s.scalar(select(Execution).where(Execution.run_id == rid))
+        execution = s.scalar(
+            select(Execution).where(Execution.run_id == rid, Execution.kind == ExecutionKind.EXISTING_TESTS)
+        )
         assert execution is not None
         assert execution.exit_code == 0
         assert execution.passed == 2

@@ -371,14 +371,16 @@ churn, top co-change), `GET /snapshots/{id}/commits`, `GET /components/{id}/hist
 
 ---
 
-## 11. Sandbox threat model — implemented Phase 7 (§15); static-diff scanning declared
+## 11. Sandbox threat model — implemented Phase 7 (§15); static-patch scanning declared
 
 All repository code, generated tests and generated patches are **UNTRUSTED**. The Docker
 sandbox itself (non-root, read-only rootfs, network isolation, resource limits, empty
 environment, reaper) is implemented in Phase 7 - see §15 for the full detail. Static
-scanning of *generated* diffs/tests (AI-produced patches, Phase 9) remains declared-only:
-nothing is AI-generated yet in Phases 1-7, so there is nothing to scan - it will *flag*
-rather than silently drop, same as every other degrade-not-silently-fail rule in this doc.
+scanning of AI-generated *tests* is implemented in Phase 8 (`testing/_safety.py`,
+§16) - every generated test is parsed and scanned for banned constructs before it ever
+reaches the sandbox. Static scanning of AI-generated *patches* (Phase 9) remains
+declared-only: it will *flag* rather than silently drop, same as every other
+degrade-not-silently-fail rule in this doc.
 
 ---
 
@@ -553,15 +555,13 @@ stages. `ANALYZING_TESTS` does real, cheap work (`archon/testing/discovery.py`):
 function is identified by its owning MODULE being flagged `is_test` (Phase 2 never sets
 that flag on the FUNCTION/METHOD rows themselves) plus its own `test_`-prefixed name;
 each becomes one `TestCase(kind=EXISTING, origin=DISCOVERED)` row. `CHARACTERIZING` and
-`GENERATING_TESTS` are honest stubs this phase (Phase 8's job) - each records exactly
-one `INFERENCE` Evidence row noting the deferral, no table writes, directly in the
-orchestrator (no placeholder module files). `EXECUTING`
-(`archon/execution/runner.py::run_existing_tests`) builds one
-`pytest -q --tb=short --junit-xml=... --cov=. --cov-report=xml:...` `ExecutionSpec`,
+`GENERATING_TESTS` were honest stubs in this phase - Phase 8 (§16 below) replaced both
+with real work. `EXECUTING` (`archon/execution/runner.py::run_existing_tests`) builds
+one `pytest -q --tb=short --junit-xml=... --cov=. --cov-report=xml:...` `ExecutionSpec`,
 runs it through `DockerSandbox`, and persists one `Execution(kind=EXISTING_TESTS)` row
 plus stdout/stderr/coverage/junit text artifacts (`core/artifacts.write_text`, a
-non-JSON sibling of `write_json`) - `coverage.xml`/`junit.xml` are captured but not yet
-parsed (Phase 8's job for test-gap analysis).
+non-JSON sibling of `write_json`) - `coverage.xml`/`junit.xml` were captured but not
+parsed until Phase 8 (§16).
 
 **Scope cuts**: the opt-in egress-filtered dependency-install phase is declared on
 `ExecutionSpec.allow_install` but raises if requested - no fixture needs installed
@@ -571,3 +571,84 @@ third-party dependencies at sandbox-run time yet. `ExecutionKind` is a plain `VA
 
 **API:** `GET /runs/{id}/tests`, `GET /runs/{id}/executions` (capped stdout/stderr
 preview + artifact refs for the full text). **Frontend:** Test Execution.
+
+---
+
+## 16. Characterization & test-gap analysis (Phase 8, §33-35)
+
+Replaces `CHARACTERIZING`/`GENERATING_TESTS`'s Phase 7 stubs with real work, and adds
+real coverage-based test-gap ranking to `EXECUTING`. No new stages - `STAGE_ORDER` is
+fixed and append-only, so Phase 8 fills the four already-reserved slots.
+
+**Stage-sequencing resolution.** `EXECUTING` (which produces this run's own
+`coverage.xml`) runs *after* `CHARACTERIZING`/`GENERATING_TESTS`, so those two stages
+can't use this run's coverage to pick targets. Resolved by splitting responsibility by
+data source rather than reordering stages: `ANALYZING_TESTS` computes a cheap
+*structural* candidate list (`testing/gaps.py::identify_untested_components` - a
+non-test FUNCTION/METHOD component with no discovered test whose name naively matches
+it, e.g. no `test_reserve` for `reserve`); `CHARACTERIZING`/`GENERATING_TESTS` consume
+that list (capped at 3 targets each, see below); `EXECUTING` runs the *combined* suite
+(existing + characterization + AI-generated files, already copied into the workspace by
+the earlier stages) and only then parses the real `coverage.xml` to compute
+`TestGap` rows, joining this run's already-persisted `LegacyDNA.legacy_risk_score` /
+`ChangeAssessment.safety_score` as the "prioritized by Legacy Risk / Change Safety"
+signal (historical-failures prioritization is weighted 0 and documented as omitted -
+no data until Phase 9).
+
+**Characterization** (`archon/testing/characterization.py`, spec §33 Principle 14 -
+observed behaviour is not assumed correct): target → `assess_target_safety` (rejects
+decorated functions, `*args`/`**kwargs`, and source containing an obvious
+side-effecting construct) → `generate_bounded_inputs` (deterministic uniform-value
+sets per parameter: `0, 1, -1, ""`) → a small harness script is written into the
+workspace and run once through the sandbox, importing the target fresh (clearing
+`sys.modules` for its package) before every input to avoid state leaking between
+calls → the observed `{input, returned, raised}` per input is hashed into a
+`baseline_hash` and stored on `Characterization`, alongside an emitted pytest test
+(`assert repr(call) == ...` or `with pytest.raises(...)`) persisted as
+`TestCase(kind=CHARACTERIZATION, origin=CHARACTERIZATION)`.
+
+**AI test generation** (`archon/testing/generation.py`, mock provider): one
+`MockAIProvider._op_test_generation` call per candidate proposes up to six scenarios
+(unit/boundary/invalid-input always; exception/integration/regression conditionally,
+per `domain/ai_schemas.py::TestGeneration`) - deterministic, template-based, no real
+type inference. Each scenario is **static-validated** individually (`ast.parse` +
+the same banned-construct scan characterization uses, factored into
+`testing/_safety.py`), then all statically-valid scenarios for one candidate are
+combined into **one** file and **sandbox-validated together in a single container run**
+- see the container-count note below for why not one container per scenario.
+`validated=True` means "collected and ran", not "passed" - a scenario expecting an
+exception is still valid if it ran, matching the spec's static+sandbox validation bar
+rather than a correctness bar.
+
+**Container-count discipline.** The first implementation spun one sandbox container
+per AI scenario (up to 6) *and* one per characterization target (up to 5) - on Docker
+Desktop, each container costs multiple seconds to create/start/copy-in/exec/copy-out/
+remove, so a single FULL pipeline run could spawn 30+ containers and full-suite test
+runs started hanging. Fixed by batching a candidate's scenarios into one sandbox run
+(above) and capping both modules to 3 candidate targets per run
+(`_MAX_TARGETS`) - roughly 7 containers per pipeline run total (3 + 3 + `EXECUTING`'s
+1), in line with Phase 7's per-run cost. `DockerSandbox`'s `_create`/`_start`/copy-in/
+copy-out calls also gained a 30s control timeout (previously unbounded - only `_exec`
+had one) so an unresponsive daemon fails fast instead of hanging the pipeline.
+
+**Test-gap analysis** (`archon/testing/gaps.py::analyze_test_gaps`, called from
+`_executing`): parses `coverage.xml` (Cobertura format, `testing/coverage.py`;
+`execution/runner.py`'s pytest command gained `--cov-branch`), computes per-component
+`coverage_pct` by intersecting the component's line range against the file's
+executable/covered line sets, and persists one `TestGap` row per component below full
+coverage - `kind=UNTESTED_FUNCTION` at 0% coverage, `MISSING_EDGE_CASE` otherwise
+(the other three declared `TestGapKind` values await a more precise future engine).
+`priority_score` weights: legacy risk 0.4, change danger (`1 - safety_score/100`) 0.4,
+coverage gap 0.2, historical failures 0.0 (documented, not faked).
+
+**Scope cuts**: `LegacyDNA.coverage`/`ChangeAssessment.coverage` stay the documented
+`TESTED_BY`-edge proxy from Phases 5-6 - retrofitting real coverage into those engines
+would touch code whose acceptance tests pin exact numeric scores, for a gain
+`TestGap.coverage_pct` already delivers directly. Characterization/generation target
+only module-level `FUNCTION` components - `METHOD` targets need instance construction,
+which this deterministic engine cannot safely infer; skips are evidence-backed
+(`INFERENCE` rows), never silent.
+
+**API:** `GET /runs/{id}/characterization`, `GET /runs/{id}/test-gaps` (sorted by
+`priority_score` desc, optional `priority` filter). **Frontend:** Characterization,
+Test Intelligence.
