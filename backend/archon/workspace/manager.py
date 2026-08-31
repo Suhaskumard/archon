@@ -99,6 +99,19 @@ class WorkspaceManager:
         log.info("workspace created", extra={"extra_fields": {"workspace_id": ws_id}})
         return Workspace(id=ws_id, path=path)
 
+    def clone(self, source: Workspace, label: str = "ws") -> Workspace:
+        """Copy ``source``'s ``repo/`` dir into a fresh, independent workspace.
+
+        Used by patch verification (Phase 9, spec section 42) to apply a candidate
+        patch in a throwaway copy - the original checkout other stages use is never
+        touched; a rejected candidate is discarded via ``cleanup`` on the copy alone.
+        """
+        ws = self.create(label)
+        src_repo = source.resolve_within("repo")
+        if src_repo.exists():
+            shutil.copytree(src_repo, ws.resolve_within("repo"))
+        return ws
+
     def cleanup(self, workspace: Workspace) -> None:
         if workspace.path.exists():
             shutil.rmtree(workspace.path, onerror=_on_rm_error)

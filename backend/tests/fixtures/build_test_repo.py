@@ -88,6 +88,14 @@ _FILES_V3 = {
         "    if qty == 0:\n        return None\n"
         "    return divide(total, qty)\n"
     ),
+    # Phase 9: a real, reproducible failure - `divide` itself has no guard, so this
+    # fails against its actual (unguarded) behaviour. Folded into this commit (not a
+    # new one) to keep `Commit.id` count pinned at 3 by Phase 4's acceptance test.
+    "tests/test_calculator.py": (
+        "from legacy_shop.calculator import add, divide\n\n\n"
+        "def test_add():\n    assert add(2, 3) == 5\n\n\n"
+        "def test_divide_by_zero_returns_none():\n    assert divide(10, 0) is None\n"
+    ),
 }
 
 

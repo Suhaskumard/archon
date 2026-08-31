@@ -73,7 +73,7 @@ def test_exact_source_inventory_for_fixture(test_repo):
             "FILE": 10,        # 8 .py files + pyproject.toml + requirements.txt
             "MODULE": 8,
             "CLASS": 2,        # Order, RushOrder
-            "FUNCTION": 8,     # add, divide, line_total, unit_price, restock, reserve, 2 tests
+            "FUNCTION": 9,     # add, divide, line_total, unit_price, restock, reserve, 3 tests
             "METHOD": 4,       # Order.__init__/total/average, RushOrder.total
         }
 

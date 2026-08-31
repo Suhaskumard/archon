@@ -184,6 +184,23 @@ class TestGapPriority(str, enum.Enum):
     CRITICAL = "CRITICAL"
 
 
+class PatchState(str, enum.Enum):
+    """Patch lifecycle (spec sections 39-42)."""
+
+    PROPOSED = "PROPOSED"
+    TESTING = "TESTING"
+    PARTIALLY_VERIFIED = "PARTIALLY_VERIFIED"
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
+class VerificationVerdict(str, enum.Enum):
+    """Terminal outcome of patch verification (spec section 41)."""
+
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
 class SupportLevel(str, enum.Enum):
     """MVP supported-repository contract (spec section 17)."""
 

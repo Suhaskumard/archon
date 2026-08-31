@@ -316,6 +316,59 @@ export interface TestGap {
   factor_breakdown: Record<string, unknown>;
 }
 
+export interface Failure {
+  id: string;
+  execution_id: string;
+  test_identifier: string;
+  message: string;
+  exception_type: string;
+  stack_trace_ref: string | null;
+  parsed_frames: Record<string, unknown>[];
+  reproducible: boolean;
+  occurrences: number;
+  first_seen: string;
+}
+
+export interface Investigation {
+  id: string;
+  failure_id: string;
+  summary: string;
+  root_cause_hypotheses: Record<string, unknown>[];
+  affected_component_ids: string[];
+  recommended_verification: string[];
+  confidence: number;
+  ai_schema_version: string;
+}
+
+export interface Patch {
+  id: string;
+  investigation_id: string;
+  strategy: string;
+  diff_preview: string;
+  diff_ref: string | null;
+  target_component_ids: string[];
+  lines_added: number;
+  lines_removed: number;
+  static_validation: Record<string, unknown>;
+  rank_score: number | null;
+  rank_breakdown: Record<string, unknown> | null;
+  state: string;
+  ai_schema_version: string;
+}
+
+export interface PatchVerification {
+  id: string;
+  patch_id: string;
+  original_failure_fixed: boolean;
+  characterization_pass: boolean;
+  regression_pass: boolean;
+  existing_tests_pass: boolean;
+  new_critical_failures: number;
+  applies_cleanly: boolean;
+  verdict: string;
+  execution_ids: string[];
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -366,4 +419,8 @@ export const api = {
   getCharacterization: (runId: string) =>
     req<Characterization[]>(`/runs/${runId}/characterization`),
   getTestGaps: (runId: string) => req<TestGap[]>(`/runs/${runId}/test-gaps`),
+  getFailures: (runId: string) => req<Failure[]>(`/runs/${runId}/failures`),
+  getInvestigations: (runId: string) => req<Investigation[]>(`/runs/${runId}/investigations`),
+  getPatches: (runId: string) => req<Patch[]>(`/runs/${runId}/patches`),
+  getVerifications: (runId: string) => req<PatchVerification[]>(`/runs/${runId}/verifications`),
 };

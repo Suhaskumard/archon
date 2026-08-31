@@ -73,7 +73,7 @@ def test_source_stage_populates_components_and_dependencies(test_repo):
         assert kinds["MODULE"] == 8
         assert kinds["CLASS"] == 2
         assert kinds["METHOD"] == 4
-        assert kinds["FUNCTION"] == 8
+        assert kinds["FUNCTION"] == 9  # Phase 9 plants an extra test (test_divide_by_zero_returns_none)
 
         billing = _component(session, sid, "legacy_shop.billing", ComponentKind.MODULE)
         calc = _component(session, sid, "legacy_shop.calculator", ComponentKind.MODULE)

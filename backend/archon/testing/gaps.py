@@ -68,7 +68,22 @@ def identify_untested_components(
 ) -> list[Component]:
     """Structural (no-coverage) candidate list: FUNCTION/METHOD components with no
     discovered test whose name naively matches them. Cheap enough to recompute in every
-    stage that needs it - no cross-stage state."""
+    stage that needs it - no cross-stage state.
+
+    Excludes functions/methods owned by a test module outright - Phase 2 only sets
+    ``is_test`` on the MODULE component for a test file, never on the FUNCTION/METHOD
+    rows inside it (see ``testing/discovery.py``), so without this a test function with
+    no test of its own (nothing tests a test) would otherwise look "untested" too.
+    """
+    test_module_paths = set(
+        session.scalars(
+            select(Component.path).where(
+                Component.snapshot_id == snapshot.id,
+                Component.is_test.is_(True),
+                Component.kind == ComponentKind.MODULE,
+            )
+        ).all()
+    )
     comps = session.scalars(
         select(Component).where(
             Component.snapshot_id == snapshot.id,
@@ -76,6 +91,7 @@ def identify_untested_components(
             Component.is_test.is_(False),
         )
     ).all()
+    comps = [c for c in comps if c.path not in test_module_paths]
     discovered_names = set(
         session.scalars(select(TestCase.name).where(TestCase.run_id == run.id)).all()
     )
@@ -109,6 +125,15 @@ def analyze_test_gaps(
 ) -> TestGapSummary:
     session.execute(delete(TestGap).where(TestGap.run_id == run.id))
 
+    test_module_paths = set(
+        session.scalars(
+            select(Component.path).where(
+                Component.snapshot_id == snapshot.id,
+                Component.is_test.is_(True),
+                Component.kind == ComponentKind.MODULE,
+            )
+        ).all()
+    )
     file_coverage = parse_coverage_xml(coverage_xml_text)
     comps = session.scalars(
         select(Component).where(
@@ -117,6 +142,7 @@ def analyze_test_gaps(
             Component.is_test.is_(False),
         )
     ).all()
+    comps = [c for c in comps if c.path not in test_module_paths]
     legacy_by_id = {
         r.component_id: r
         for r in session.scalars(select(LegacyDNA).where(LegacyDNA.run_id == run.id)).all()

@@ -58,6 +58,10 @@ from archon.db.models import (
 )
 from archon.domain.enums import Classification, RunMode, RunState, Stage
 from archon.execution.runner import run_existing_tests
+from archon.failure.detection import detect_failures
+from archon.healing.generation import generate_patches
+from archon.healing.ranking import rank_patches
+from archon.investigation.engine import investigate_failures
 from archon.jobs.manager import JobManager
 from archon.jobs.state_machine import RunStateMachine
 from archon.pipeline.support import assess_support
@@ -66,6 +70,7 @@ from archon.testing.characterization import run_characterization
 from archon.testing.discovery import discover_existing_tests
 from archon.testing.gaps import analyze_test_gaps, identify_untested_components
 from archon.testing.generation import run_test_generation
+from archon.verification.engine import verify_patches
 from archon.workspace.manager import Workspace, WorkspaceManager
 
 log = get_logger("archon.pipeline")
@@ -88,6 +93,12 @@ _ANALYSIS_STAGES = (
     Stage.CHARACTERIZING,
     Stage.GENERATING_TESTS,
     Stage.EXECUTING,
+    Stage.DETECTING_FAILURES,
+    Stage.INVESTIGATING,
+    Stage.GENERATING_PATCH,
+    Stage.RANKING_PATCHES,
+    Stage.VERIFYING_PATCH,
+    Stage.REGRESSION_VERIFYING,
 )
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
@@ -121,6 +132,10 @@ class PipelineResult:
     characterization: dict | None = None
     test_generation: dict | None = None
     execution: dict | None = None
+    failures: dict | None = None
+    investigations: dict | None = None
+    patches: dict | None = None
+    verification: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -163,6 +178,10 @@ class PipelineOrchestrator:
         characterization_summary: dict | None = None
         test_generation_summary: dict | None = None
         execution_summary: dict | None = None
+        failure_summary: dict | None = None
+        investigation_summary: dict | None = None
+        patch_summary: dict | None = None
+        verification_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -227,6 +246,24 @@ class PipelineOrchestrator:
             elif stage is Stage.EXECUTING:
                 assert clone_result is not None and snapshot is not None
                 execution_summary = self._executing(session, run, snapshot, clone_result.workspace)
+            elif stage is Stage.DETECTING_FAILURES:
+                assert clone_result is not None and snapshot is not None and execution_summary is not None
+                failure_summary = self._detecting_failures(
+                    session, run, snapshot, clone_result.workspace, execution_summary["execution_id"]
+                )
+            elif stage is Stage.INVESTIGATING:
+                assert snapshot is not None
+                investigation_summary = self._investigating(session, run, snapshot)
+            elif stage is Stage.GENERATING_PATCH:
+                assert clone_result is not None and snapshot is not None
+                patch_summary = self._generating_patch(session, run, snapshot, clone_result.workspace)
+            elif stage is Stage.RANKING_PATCHES:
+                self._ranking_patches(session, run)
+            elif stage is Stage.VERIFYING_PATCH:
+                assert clone_result is not None and snapshot is not None
+                verification_summary = self._verifying_patch(session, run, snapshot, clone_result.workspace)
+            elif stage is Stage.REGRESSION_VERIFYING:
+                self._regression_verifying(session, run, verification_summary)
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -261,6 +298,10 @@ class PipelineOrchestrator:
             characterization=characterization_summary,
             test_generation=test_generation_summary,
             execution=execution_summary,
+            failures=failure_summary,
+            investigations=investigation_summary,
+            patches=patch_summary,
+            verification=verification_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -528,6 +569,68 @@ class PipelineOrchestrator:
             extra={"extra_fields": {"run_id": run.id, **result}},
         )
         return result
+
+    def _detecting_failures(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot,
+        workspace: Workspace, execution_id: str,
+    ) -> dict:
+        execution = session.get(Execution, execution_id)
+        assert execution is not None
+        summary = detect_failures(session, run, snapshot, execution, workspace)
+        log.info(
+            "failure detection stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _investigating(self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot) -> dict:
+        summary = investigate_failures(session, run, snapshot)
+        log.info(
+            "investigation stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _generating_patch(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = generate_patches(session, run, snapshot, workspace)
+        log.info(
+            "patch generation stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _ranking_patches(self, session: Session, run: AnalysisRun) -> None:
+        summary = rank_patches(session, run)
+        log.info(
+            "patch ranking stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+
+    def _verifying_patch(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, workspace: Workspace
+    ) -> dict:
+        summary = verify_patches(session, run, snapshot, workspace)
+        log.info(
+            "patch verification stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _regression_verifying(
+        self, session: Session, run: AnalysisRun, verification_summary: dict | None
+    ) -> None:
+        # verify_patches (VERIFYING_PATCH) already ran the regression suite per
+        # candidate - this stage finalizes/summarizes that result, per the fixed
+        # Stage order, rather than re-running anything.
+        verified = bool(verification_summary and verification_summary.get("verified"))
+        self._add_evidence(
+            session, run, Stage.REGRESSION_VERIFYING, Classification.FACT,
+            "Regression verification confirmed a VERIFIED patch" if verified
+            else "No patch reached a VERIFIED regression-clean state",
+            produced_by="patch_verification.v1", confidence=1.0,
+        )
 
     # --- helpers ----------------------------------------------------------
 

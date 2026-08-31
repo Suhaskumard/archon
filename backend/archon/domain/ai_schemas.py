@@ -23,6 +23,8 @@ BEHAVIOR_SCHEMA_VERSION = "behavior_analysis.v1"
 INTENT_SCHEMA_VERSION = "historical_intent.v1"
 ASSUMPTION_SCHEMA_VERSION = "assumption_analysis.v1"
 TEST_GENERATION_SCHEMA_VERSION = "test_generation.v1"
+ROOT_CAUSE_SCHEMA_VERSION = "root_cause_analysis.v1"
+PATCH_PROPOSAL_SCHEMA_VERSION = "patch_proposal.v1"
 
 
 class EvidenceRef(BaseModel):
@@ -88,11 +90,51 @@ class TestGeneration(AIEnvelope):
     scenarios: list[TestScenario] = Field(default_factory=list)
 
 
+class RootCauseHypothesis(BaseModel):
+    """One ranked root-cause hypothesis (spec section 38)."""
+
+    statement: str
+    confidence: Confidence = Confidence.UNKNOWN
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+
+
+class RootCauseAnalysis(AIEnvelope):
+    """Root-cause investigation of one test failure (spec section 38).
+
+    Proceeds to healing only when the top hypothesis clears a documented confidence
+    threshold - see ``investigation/engine.py``. A failure pattern the mock provider
+    doesn't recognize yields an empty hypothesis list and ``confidence=UNKNOWN``, never
+    a fabricated guess.
+    """
+
+    summary: str
+    hypotheses: list[RootCauseHypothesis] = Field(default_factory=list)
+    recommended_verification: list[str] = Field(default_factory=list)
+
+
+class PatchProposal(AIEnvelope):
+    """One candidate fix under the Minimal Patch Principle (spec section 39).
+
+    ``old_snippet``/``new_snippet`` are exact source text - the caller applies them as
+    a literal string replacement (never a fuzzy/AI-applied edit) and computes the real
+    unified diff itself, so "applies cleanly" is a verifiable fact, not a claim.
+    """
+
+    strategy: str
+    target_component: str  # component id
+    target_file: str
+    old_snippet: str
+    new_snippet: str
+    rationale: str = ""
+
+
 SCHEMA_VERSIONS: dict[str, str] = {
     "historical_intent": INTENT_SCHEMA_VERSION,
     "behavior_analysis": BEHAVIOR_SCHEMA_VERSION,
     "assumption_analysis": ASSUMPTION_SCHEMA_VERSION,
     "test_generation": TEST_GENERATION_SCHEMA_VERSION,
+    "root_cause_analysis": ROOT_CAUSE_SCHEMA_VERSION,
+    "patch_proposal": PATCH_PROPOSAL_SCHEMA_VERSION,
 }
 
 __all__ = [
@@ -103,9 +145,14 @@ __all__ = [
     "AssumptionAnalysis",
     "TestScenario",
     "TestGeneration",
+    "RootCauseHypothesis",
+    "RootCauseAnalysis",
+    "PatchProposal",
     "SCHEMA_VERSIONS",
     "INTENT_SCHEMA_VERSION",
     "BEHAVIOR_SCHEMA_VERSION",
     "ASSUMPTION_SCHEMA_VERSION",
     "TEST_GENERATION_SCHEMA_VERSION",
+    "ROOT_CAUSE_SCHEMA_VERSION",
+    "PATCH_PROPOSAL_SCHEMA_VERSION",
 ]

@@ -45,6 +45,14 @@ ENGINE_VERSIONS: dict[str, str] = {
     "coverage_analysis": "coverage_analysis.v1",
     "test_gap_analysis": "test_gap_analysis.v1",
     "ai_test_generation": "test_generation.v1",
+    # Phase 9 - failure investigation & self-healing
+    "failure_detection": "failure_detection.v1",
+    "investigation": "investigation.v1",
+    "ai_root_cause_analysis": "root_cause_analysis.v1",
+    "patch_generation": "patch_generation.v1",
+    "ai_patch_proposal": "patch_proposal.v1",
+    "patch_ranking": "patch_ranking.v1",
+    "patch_verification": "patch_verification.v1",
 }
 
 

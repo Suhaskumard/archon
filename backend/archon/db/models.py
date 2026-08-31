@@ -38,6 +38,7 @@ from archon.domain.enums import (
     HotspotClassification,
     JobState,
     JobType,
+    PatchState,
     ProviderKind,
     RiskCategory,
     RunMode,
@@ -50,6 +51,7 @@ from archon.domain.enums import (
     TestCaseOrigin,
     TestGapKind,
     TestGapPriority,
+    VerificationVerdict,
 )
 
 
@@ -735,6 +737,113 @@ class TestGap(Base, TimestampMixin):
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class Failure(Base, TimestampMixin):
+    """A test failure surfaced by an ``Execution`` (spec sections 37, 60)."""
+
+    __tablename__ = "failures"
+    __table_args__ = (Index("ix_failure_run_execution", "run_id", "execution_id"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("flr"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    execution_id: Mapped[str] = mapped_column(
+        ForeignKey("executions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    test_identifier: Mapped[str] = mapped_column(String(512), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    exception_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    stack_trace_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    parsed_frames: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    reproducible: Mapped[bool] = mapped_column(default=False, nullable=False)
+    occurrences: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class Investigation(Base, TimestampMixin):
+    """AI root-cause investigation of one ``Failure`` (spec section 38)."""
+
+    __tablename__ = "investigations"
+    __table_args__ = (UniqueConstraint("run_id", "failure_id", name="uq_investigation_run_failure"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("inv"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    failure_id: Mapped[str] = mapped_column(
+        ForeignKey("failures.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    root_cause_hypotheses: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    affected_component_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    recommended_verification: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    ai_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class Patch(Base, TimestampMixin):
+    """One candidate patch for an ``Investigation`` (spec sections 39-40)."""
+
+    __tablename__ = "patches"
+    __table_args__ = (Index("ix_patch_run_state", "run_id", "state"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ptc"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    investigation_id: Mapped[str] = mapped_column(
+        ForeignKey("investigations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    strategy: Mapped[str] = mapped_column(String(128), nullable=False)
+    diff_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    target_component_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    lines_added: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    lines_removed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # exact source text applied as a literal replacement - not in the spec's field
+    # list (which only names diff_ref), kept alongside it so verification can
+    # deterministically re-apply the same change in a fresh workspace copy without
+    # re-parsing the unified diff.
+    old_snippet: Mapped[str] = mapped_column(Text, nullable=False)
+    new_snippet: Mapped[str] = mapped_column(Text, nullable=False)
+    static_validation: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    rank_score: Mapped[float | None] = mapped_column(Float)
+    rank_breakdown: Mapped[dict | None] = mapped_column(JSON)
+    state: Mapped[PatchState] = mapped_column(_enum(PatchState), default=PatchState.PROPOSED, nullable=False)
+    ai_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class PatchVerification(Base, TimestampMixin):
+    """Verification result for one ``Patch`` (spec sections 41-42)."""
+
+    __tablename__ = "patch_verifications"
+    __table_args__ = (Index("ix_patch_verification_run_patch", "run_id", "patch_id"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("pver"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    patch_id: Mapped[str] = mapped_column(
+        ForeignKey("patches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    original_failure_fixed: Mapped[bool] = mapped_column(default=False, nullable=False)
+    characterization_pass: Mapped[bool] = mapped_column(default=False, nullable=False)
+    regression_pass: Mapped[bool] = mapped_column(default=False, nullable=False)
+    existing_tests_pass: Mapped[bool] = mapped_column(default=False, nullable=False)
+    new_critical_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    applies_cleanly: Mapped[bool] = mapped_column(default=False, nullable=False)
+    verdict: Mapped[VerificationVerdict] = mapped_column(_enum(VerificationVerdict), nullable=False)
+    execution_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    evidence_ids: Mapped[list | None] = mapped_column(JSON)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
@@ -748,9 +857,13 @@ __all__ = [
     "Dependency",
     "Evidence",
     "Execution",
+    "Failure",
     "Hotspot",
+    "Investigation",
     "Job",
     "LegacyDNA",
+    "Patch",
+    "PatchVerification",
     "Repository",
     "RepositorySnapshot",
     "RiskAssessment",

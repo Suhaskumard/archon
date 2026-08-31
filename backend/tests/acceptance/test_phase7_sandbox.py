@@ -52,23 +52,26 @@ def test_normal_suite_runs_and_results_are_captured(test_repo):
     rid = _run(test_repo)
     with session_scope() as s:
         run = s.get(AnalysisRun, rid)
-        # Phase 8 adds characterization/AI-generated TestCase rows on top of the 2
+        # Phase 8 adds characterization/AI-generated TestCase rows on top of the 3
         # existing ones discovered by Phase 7 - this contract is about EXISTING only.
+        # Phase 9 plants a genuinely-failing test (test_divide_by_zero_returns_none) -
+        # discovery still finds it (discovery != pass/fail), so the count is 3.
         test_cases = s.scalars(
             select(TestCase).where(TestCase.run_id == rid, TestCase.kind == TestCaseKind.EXISTING)
         ).all()
-        assert len(test_cases) == 2
+        assert len(test_cases) == 3
         assert {tc.name for tc in test_cases} == {
             "tests.test_calculator.test_add", "tests.test_billing.test_line_total",
+            "tests.test_calculator.test_divide_by_zero_returns_none",
         }
 
         execution = s.scalar(
             select(Execution).where(Execution.run_id == rid, Execution.kind == ExecutionKind.EXISTING_TESTS)
         )
         assert execution is not None
-        assert execution.exit_code == 0
+        assert execution.exit_code != 0  # the planted failure makes the suite fail
         assert execution.passed == 2
-        assert execution.failed == 0
+        assert execution.failed == 1
         assert execution.errors == 0
         assert execution.timed_out is False
         assert execution.stdout_ref is not None

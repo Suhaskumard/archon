@@ -203,6 +203,86 @@ class MockAIProvider(AIProvider):
             "recommended_action": "Review each generated test before trusting it as a real spec.",
         }
 
+    def _op_root_cause_analysis(self, ctx: dict) -> dict:
+        failure = ctx.get("failure", {})
+        comp = ctx.get("component")
+        assumptions = ctx.get("assumptions", [])
+        division = next((a for a in assumptions if a.get("kind") == "division"), None)
+
+        if comp is None or division is None:
+            return {
+                "summary": (
+                    f"No recognized root-cause pattern for "
+                    f"{failure.get('exception_type', 'this failure')} - unable to "
+                    "form an evidence-backed hypothesis."
+                ),
+                "hypotheses": [],
+                "recommended_verification": [],
+                "evidence": [],
+                "confidence": "UNKNOWN",
+                "classification": "HYPOTHESIS",
+                "reasoning_summary": "No matching hidden-assumption pattern was found for the implicated component.",
+            }
+
+        qn = comp["qualified_name"]
+        statement = (
+            f"{qn} divides without guarding against a zero divisor - a previously "
+            f"detected 'division' hidden assumption at {division.get('location', qn)} "
+            f"matches the observed {failure.get('exception_type', 'exception')}."
+        )
+        return {
+            "summary": f"Root cause: unguarded division by zero in {qn}.",
+            "hypotheses": [{
+                "statement": statement, "confidence": "HIGH",
+                "evidence": [{"kind": "component", "ref": qn, "detail": "implicated by the stack trace"}],
+            }],
+            "recommended_verification": [
+                f"Call {qn} with a zero divisor and assert it no longer raises ZeroDivisionError.",
+            ],
+            "evidence": [{"kind": "component", "ref": qn, "detail": "root-cause subject"}],
+            "confidence": "HIGH",
+            "classification": "HYPOTHESIS",
+            "reasoning_summary": (
+                "Matched the failing stack frame's component against an existing "
+                "'division' hidden-assumption finding - not a general inference."
+            ),
+            "recommended_action": "Generate a guard-against-zero patch and verify it in the sandbox.",
+        }
+
+    def _op_patch_proposal(self, ctx: dict) -> dict:
+        comp = ctx.get("component", {})
+        qn = comp.get("qualified_name", "?")
+        divisor = ctx.get("divisor_param")
+        return_expr = ctx.get("return_expr_source")
+        hint = ctx.get("strategy_hint", "guard_zero_divisor")
+
+        if not divisor or not return_expr:
+            return {
+                "strategy": "none", "target_component": comp.get("id", ""),
+                "target_file": comp.get("path", ""), "old_snippet": "", "new_snippet": "",
+                "rationale": "No recognized division pattern to patch.",
+                "evidence": [], "confidence": "UNKNOWN", "classification": "HYPOTHESIS",
+                "reasoning_summary": "No divisor parameter/return expression was supplied in context.",
+            }
+
+        if hint == "naive_integer_division":
+            new_snippet = return_expr.replace("/", "//")
+            rationale = "Uses integer division instead of true division."
+        else:
+            hint = "guard_zero_divisor"
+            indent = ctx.get("indent", "")
+            new_snippet = f"if {divisor} == 0:\n{indent}    return None\n{indent}{return_expr}"
+            rationale = f"Guards {divisor!r} against zero before dividing, mirroring the sibling guard style."
+
+        return {
+            "strategy": hint, "target_component": comp.get("id", ""),
+            "target_file": comp.get("path", ""),
+            "old_snippet": return_expr, "new_snippet": new_snippet, "rationale": rationale,
+            "evidence": [{"kind": "component", "ref": qn, "detail": "patch target"}],
+            "confidence": "MEDIUM", "classification": "RECOMMENDATION",
+            "reasoning_summary": "Template-generated from the detected division-by-zero pattern - not general code synthesis.",
+        }
+
     def _op_assumption_analysis(self, ctx: dict) -> dict:
         a = ctx.get("assumption", {})
         comp = ctx.get("component", {})

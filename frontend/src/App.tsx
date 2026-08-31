@@ -10,9 +10,13 @@ import {
   type Component,
   type Evolution,
   type Execution,
+  type Failure,
   type Hotspot,
+  type Investigation,
   type LegacyDna,
   type ModuleArch,
+  type Patch,
+  type PatchVerification,
   type Repository,
   type RepositoryUnderstanding,
   type Run,
@@ -26,6 +30,19 @@ const TEST_GAP_PRIORITY_COLOR: Record<string, string> = {
   MEDIUM: "#ffd479",
   HIGH: "#ff9d9d",
   CRITICAL: "#e5484d",
+};
+
+const PATCH_STATE_COLOR: Record<string, string> = {
+  PROPOSED: "#9aa4b2",
+  TESTING: "#ffd479",
+  PARTIALLY_VERIFIED: "#ffd479",
+  VERIFIED: "#7ee0a2",
+  REJECTED: "#ff9d9d",
+};
+
+const VERDICT_COLOR: Record<string, string> = {
+  VERIFIED: "#7ee0a2",
+  REJECTED: "#ff9d9d",
 };
 
 const RISK_COLOR: Record<string, string> = {
@@ -1133,6 +1150,188 @@ function TestIntelligencePanel({ runId }: { runId: string }) {
   );
 }
 
+function FailuresPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Failure[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getFailures(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Failures</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Test</th>
+              <th>Exception</th>
+              <th>Message</th>
+              <th>Reproducible</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="meta">{r.test_identifier}</td>
+                <td className="meta">{r.exception_type}</td>
+                <td className="meta">{r.message}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{
+                      borderColor: r.reproducible ? "#ff9d9d" : "#9aa4b2",
+                      color: r.reproducible ? "#ff9d9d" : "#9aa4b2",
+                    }}
+                  >
+                    {r.reproducible ? "reproducible" : "intermittent"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function RootCauseAnalysisPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Investigation[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getInvestigations(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Root Cause Analysis</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Summary</th>
+              <th>Confidence</th>
+              <th>Recommended Verification</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.summary}</td>
+                <td className="meta">{r.confidence.toFixed(2)}</td>
+                <td className="meta">{r.recommended_verification.join("; ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function SelfHealingPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Patch[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getPatches(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Self-Healing</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Strategy</th>
+              <th>Lines +/-</th>
+              <th>Rank</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="meta">{r.strategy}</td>
+                <td className="meta">+{r.lines_added} / -{r.lines_removed}</td>
+                <td className="meta">{r.rank_score?.toFixed(0) ?? "—"}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{ borderColor: PATCH_STATE_COLOR[r.state], color: PATCH_STATE_COLOR[r.state] }}
+                  >
+                    {r.state}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function PatchVerificationPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<PatchVerification[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getVerifications(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Patch Verification</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Original Fixed</th>
+              <th>Regression</th>
+              <th>Existing Tests</th>
+              <th>Characterization</th>
+              <th>Applies Cleanly</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="meta">{r.original_failure_fixed ? "yes" : "no"}</td>
+                <td className="meta">{r.regression_pass ? "yes" : "no"}</td>
+                <td className="meta">{r.existing_tests_pass ? "yes" : "no"}</td>
+                <td className="meta">{r.characterization_pass ? "yes" : "no"}</td>
+                <td className="meta">{r.applies_cleanly ? "yes" : "no"}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{ borderColor: VERDICT_COLOR[r.verdict], color: VERDICT_COLOR[r.verdict] }}
+                  >
+                    {r.verdict}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -1223,6 +1422,10 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <TestExecutionPanel runId={run.id} />
               <CharacterizationPanel runId={run.id} />
               <TestIntelligencePanel runId={run.id} />
+              <FailuresPanel runId={run.id} />
+              <RootCauseAnalysisPanel runId={run.id} />
+              <SelfHealingPanel runId={run.id} />
+              <PatchVerificationPanel runId={run.id} />
             </>
           )}
 

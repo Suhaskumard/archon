@@ -652,3 +652,81 @@ which this deterministic engine cannot safely infer; skips are evidence-backed
 **API:** `GET /runs/{id}/characterization`, `GET /runs/{id}/test-gaps` (sorted by
 `priority_score` desc, optional `priority` filter). **Frontend:** Characterization,
 Test Intelligence.
+
+---
+
+## 17. Failure investigation & self-healing (Phase 9, §37-43)
+
+Closes the MVP loop with six stages filling `Stage`'s already-declared
+`DETECTING_FAILURES → INVESTIGATING → GENERATING_PATCH → RANKING_PATCHES →
+VERIFYING_PATCH → REGRESSION_VERIFYING` slots - no new stages added.
+
+**MVP-loop stages fail the run, they don't degrade-and-continue.** Unlike Phase
+8's AI-call handling (catch, downgrade to Evidence, continue), none of this phase's
+orchestrator dispatch methods wrap their module calls in try/except - per the state
+machine's own rule (§10), these are MVP-loop stages that propagate an internal error
+to fail the run. A stage with genuinely no work (no failures, or no investigation
+cleared the confidence gate) still completes normally with one FACT Evidence row.
+
+**Failure detection** (`archon/failure/detection.py`) parses the `execution_junit`
+artifact `execution/runner.py` has captured since Phase 7 but never read until now -
+one `Failure` per failing/erroring `<testcase>`, with `path:line: in func` stack
+frames extracted from pytest's `--tb=short` text and resolved to `Component` rows by
+line-range containment. Each failure (capped at 3/run) is re-run once more through
+the sandbox for a reproducibility check.
+
+**Investigation** (`archon/investigation/engine.py`) assembles context - the
+implicated `Component`, its `Assumption` rows - and calls the mock `root_cause_analysis`
+AI op. Only investigations at `Confidence.MEDIUM`+ (`PATCH_GENERATION_CONFIDENCE_THRESHOLD`)
+proceed to `GENERATING_PATCH`; a failure the mock can't explain gets
+`confidence=UNKNOWN` and is honestly skipped (Evidence, not silence) - spec §38's
+documented threshold gate.
+
+**Patch generation** (`archon/healing/generation.py`) is deliberately scoped, like
+every other Mock AI op, to one recognized bug pattern: an unguarded division, tied to
+Phase 4's existing `division`-kind `Assumption` detector. Two deterministic candidates
+per gated investigation - `guard_zero_divisor` (a real fix, AST-derived, mirroring the
+sibling guard style already in the fixture) and `naive_integer_division` (a
+deliberately wrong one) - so ranking/verification have a genuine choice to make,
+matching the spec's own acceptance bar ("a deliberately bad candidate is rejected").
+`old_snippet`/`new_snippet` are exact source text; application is a literal string
+replacement, so **"applies cleanly" is a verified fact** (`source.count(old_snippet) == 1`),
+never a claim - and a real unified diff (`difflib.unified_diff`) is computed and stored
+as the artifact of record regardless. Static validation (`ast.parse`, the same
+banned-construct scan Phase 8 built for generated tests, and a ≤20-changed-line
+Minimal Patch Principle cap) is recorded on every `Patch` row, flagged not dropped,
+mirroring §12's sandbox rule for generated *tests* onto generated *patches* too.
+
+**Patch ranking** (`archon/healing/ranking.py`) is **deterministic, not another AI
+call** - the spec's own language for it ("versioned, explainable... per doc") matches
+`legacy_risk.py`'s shape exactly. Pre-verification rank (`rank_static`) gates on static
+validation and scores by patch size alone - it only decides verification order.
+Post-verification rank (`rank_verified`) is dominated by real pass/fail signals
+(correctness weight 0.8, size 0.2) once they exist.
+
+**Verification** (`archon/verification/engine.py`, spec §41-42) tries **every**
+generated candidate (bounded - at most two per investigation), not just the top-ranked
+one: an earlier version stopped at the first `VERIFIED` patch, but since the two mock
+candidates can tie on the static-only pre-verification rank, whichever sorted first
+would win immediately and silently skip verifying the other - hiding the rejection
+story the acceptance bar wants demonstrated. Each candidate gets its own throwaway
+`WorkspaceManager.clone()` (new method, `shutil.copytree` of the `repo/` dir) - the
+original checkout every other stage uses is never touched (Principle 11). Three
+sandbox runs per candidate: the originally-failing test alone
+(`original_failure_fixed`), the full existing+characterization+generated suite
+(`regression_pass`/`existing_tests_pass`, `new_critical_failures` = failures now
+present that weren't in the pre-patch failing set), and characterization tests alone
+(`characterization_pass`). `verdict = VERIFIED` only when every check is `True` and
+the snippet swap applied cleanly (§41, verbatim AND). Rejection needs no explicit
+"rollback" step beyond discarding the clone (`WorkspaceManager.cleanup`) - the original
+was never mutated, so there is nothing to restore.
+
+**Scope cuts**: only one bug pattern class is recognized (unguarded division) - a real
+AI provider would generalize root-cause analysis and patch proposal without touching
+the deterministic scaffolding (validation, ranking, verification) built this phase.
+Incident memory (Phase 10) is unimplemented - a `VERIFIED` patch is this phase's end
+state; nothing is recorded as an `Incident` yet.
+
+**API:** `GET /runs/{id}/failures`, `/investigations`, `/patches` (with
+`diff_preview`, `state` filter, sorted by `rank_score` desc), `/verifications`.
+**Frontend:** Failures, Root Cause Analysis, Self-Healing, Patch Verification.

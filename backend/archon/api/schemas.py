@@ -391,3 +391,59 @@ class TestGapOut(BaseModel):
     priority: str
     confidence: float
     factor_breakdown: dict
+
+
+# --- Phase 9: failure investigation & self-healing ------------------------------------
+
+
+class FailureOut(BaseModel):
+    id: str
+    execution_id: str
+    test_identifier: str
+    message: str
+    exception_type: str
+    stack_trace_ref: str | None
+    parsed_frames: list
+    reproducible: bool
+    occurrences: int
+    first_seen: datetime
+
+
+class InvestigationOut(BaseModel):
+    id: str
+    failure_id: str
+    summary: str
+    root_cause_hypotheses: list
+    affected_component_ids: list
+    recommended_verification: list
+    confidence: float
+    ai_schema_version: str
+
+
+class PatchOut(BaseModel):
+    id: str
+    investigation_id: str
+    strategy: str
+    diff_preview: str
+    diff_ref: str | None
+    target_component_ids: list
+    lines_added: int
+    lines_removed: int
+    static_validation: dict
+    rank_score: float | None
+    rank_breakdown: dict | None
+    state: str
+    ai_schema_version: str
+
+
+class PatchVerificationOut(BaseModel):
+    id: str
+    patch_id: str
+    original_failure_fixed: bool
+    characterization_pass: bool
+    regression_pass: bool
+    existing_tests_pass: bool
+    new_critical_failures: int
+    applies_cleanly: bool
+    verdict: str
+    execution_ids: list
