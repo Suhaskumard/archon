@@ -418,6 +418,7 @@ class InvestigationOut(BaseModel):
     recommended_verification: list
     confidence: float
     ai_schema_version: str
+    cited_incident_ids: list
 
 
 class PatchOut(BaseModel):
@@ -447,3 +448,23 @@ class PatchVerificationOut(BaseModel):
     applies_cleanly: bool
     verdict: str
     execution_ids: list
+
+
+# --- Phase 10: incident memory --------------------------------------------------------
+
+
+class IncidentOut(BaseModel):
+    id: str
+    run_id: str | None
+    repo_id: str
+    failure_signature: str
+    failure_summary: str
+    root_cause: str
+    evidence_ids: list
+    affected_component_ids: list
+    fix_ref: str | None
+    patch_id: str | None
+    regression_test_ids: list
+    verification_id: str | None
+    confidence: float
+    created_at: datetime

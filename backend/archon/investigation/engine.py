@@ -26,6 +26,7 @@ from archon.db.models import (
 )
 from archon.domain.ai_schemas import ROOT_CAUSE_SCHEMA_VERSION, RootCauseAnalysis
 from archon.domain.enums import Classification, Confidence, Stage
+from archon.incidents.store import compute_failure_signature, find_similar_incidents
 from archon.providers.ai import get_ai_provider
 
 log = get_logger("archon.investigation")
@@ -71,6 +72,8 @@ def investigate_failures(
             session.scalars(select(Assumption).where(Assumption.component_id == component.id)).all()
             if component else []
         )
+        signature = compute_failure_signature(failure)
+        similar_incidents = find_similar_incidents(session, run.repository_id, signature)
 
         context = {
             "failure": {
@@ -86,6 +89,13 @@ def investigate_failures(
             ),
             "assumptions": [
                 {"kind": a.kind, "description": a.description, "location": a.location} for a in assumptions
+            ],
+            "historical_incidents": [
+                {
+                    "id": i.id, "failure_summary": i.failure_summary,
+                    "root_cause": i.root_cause, "confidence": i.confidence,
+                }
+                for i in similar_incidents
             ],
             "known_refs": {"component": {component.qualified_name}} if component else {},
         }
@@ -106,6 +116,7 @@ def investigate_failures(
             affected_component_ids=[component.id] if component else [],
             recommended_verification=result.recommended_verification,
             confidence=top_confidence, ai_schema_version=ROOT_CAUSE_SCHEMA_VERSION,
+            cited_incident_ids=[i.id for i in similar_incidents],
             produced_by=INVESTIGATION_VERSION,
         )
         session.add(investigation)

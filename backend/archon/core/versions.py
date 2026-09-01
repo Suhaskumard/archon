@@ -53,6 +53,8 @@ ENGINE_VERSIONS: dict[str, str] = {
     "ai_patch_proposal": "patch_proposal.v1",
     "patch_ranking": "patch_ranking.v1",
     "patch_verification": "patch_verification.v1",
+    # Phase 10 - incident memory
+    "incident_memory": "incident_memory.v1",
 }
 
 

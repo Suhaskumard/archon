@@ -12,6 +12,7 @@ from archon.api.routers import (
     architecture,
     execution,
     healing,
+    incidents,
     repositories,
     runs,
     scoring,
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(scoring.router)
     app.include_router(execution.router)
     app.include_router(healing.router)
+    app.include_router(incidents.router)
     return app
 
 

@@ -783,6 +783,9 @@ class Investigation(Base, TimestampMixin):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     ai_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Phase 10: prior Incident rows matching this failure's signature, surfaced as
+    # historical context - cited, never substituted for fresh evidence (Principle 15).
+    cited_incident_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
 
 class Patch(Base, TimestampMixin):
@@ -844,6 +847,45 @@ class PatchVerification(Base, TimestampMixin):
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class Incident(Base, TimestampMixin):
+    """A verified repair recorded for future retrieval (spec section 44).
+
+    Scoped to the repository, not a single run/snapshot - incidents outlive any one
+    analysis run and are retrieved by failure-signature match across the repo's
+    history (see ``archon/incidents/store.py``).
+    """
+
+    __tablename__ = "incidents"
+    __table_args__ = (Index("ix_incident_repo_signature", "repo_id", "failure_signature"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("inc"))
+    # not in the spec's field list - kept so re-entering RECORDING_INCIDENT on a
+    # resumed run is idempotent (delete WHERE run_id=? before inserting), matching
+    # every other stage's idempotency convention; SET NULL so the incident itself
+    # outlives the run that created it.
+    run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="SET NULL"), index=True
+    )
+    repo_id: Mapped[str] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    failure_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    failure_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    root_cause: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    affected_component_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    fix_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    patch_id: Mapped[str | None] = mapped_column(ForeignKey("patches.id", ondelete="SET NULL"), index=True)
+    regression_test_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    verification_id: Mapped[str | None] = mapped_column(
+        ForeignKey("patch_verifications.id", ondelete="SET NULL")
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
@@ -859,6 +901,7 @@ __all__ = [
     "Execution",
     "Failure",
     "Hotspot",
+    "Incident",
     "Investigation",
     "Job",
     "LegacyDNA",

@@ -724,9 +724,56 @@ was never mutated, so there is nothing to restore.
 **Scope cuts**: only one bug pattern class is recognized (unguarded division) - a real
 AI provider would generalize root-cause analysis and patch proposal without touching
 the deterministic scaffolding (validation, ranking, verification) built this phase.
-Incident memory (Phase 10) is unimplemented - a `VERIFIED` patch is this phase's end
-state; nothing is recorded as an `Incident` yet.
+A `VERIFIED` patch is recorded as an `Incident` in Phase 10 (§18 below).
 
 **API:** `GET /runs/{id}/failures`, `/investigations`, `/patches` (with
 `diff_preview`, `state` filter, sorted by `rank_score` desc), `/verifications`.
 **Frontend:** Failures, Root Cause Analysis, Self-Healing, Patch Verification.
+
+---
+
+## 18. Incident memory (Phase 10, §44)
+
+The last of the currently-declared `Stage` values before `MODERNIZING` (Phase 12) -
+`RECORDING_INCIDENT` fills the final gap in `_ANALYSIS_STAGES`, no new stage needed.
+
+**Repository-scoped, not run/snapshot-scoped.** `Component`/`RepositorySnapshot` ids
+change across commits, so `archon/incidents/store.py::compute_failure_signature`
+deliberately excludes `component_id` and line numbers - it keys on `exception_type`
+plus the innermost stack frame's `(path, func)`, which stays stable across commits of
+the same repo. `find_similar_incidents(repo_id, signature)` therefore searches every
+prior run of that repository, not just the current snapshot.
+
+**Cited, never substituted (Principle 15).** `investigation/engine.py` looks up
+similar incidents *before* every root-cause AI call and always records
+`Investigation.cited_incident_ids` (empty if none) regardless of outcome. The mock
+provider only appends one sentence to `reasoning_summary` naming the prior incident
+id(s) when both history exists *and* the current evidence independently supports a
+hypothesis - the hypothesis statement, confidence, and evidence set are computed
+exactly as they would be with zero history. Verified directly by the acceptance test:
+a second run's investigation confidence over the same bug is bit-for-bit identical to
+the first run's, even though it cites the first run's incident.
+
+**Schema note.** `Investigation.cited_incident_ids` required widening an existing
+table - since `investigations` is fully-derived (rebuilt every run), the migration
+reuses the exact drop-table-and-recreate-from-metadata pattern
+`0003_architecture.py` already established for `dependencies`, rather than an
+`ALTER TABLE`. `Incident.run_id` isn't in the spec's exact field list (mirroring the
+`Patch.old_snippet`/`new_snippet` precedent from Phase 9) - added because an incident
+otherwise has no run-scoped identity to clear on a resumed run's re-entry, even though
+by design it's meant to outlive the run that created it.
+
+**Recording** (`record_incidents`, called from `_recording_incident` - an MVP-loop
+stage, no try/except): one `Incident` per `Patch` with `state == VERIFIED` this run,
+pulling `root_cause` from the `Investigation`'s top hypothesis, `evidence_ids` from
+this run's `INVESTIGATING`/`VERIFYING_PATCH` Evidence rows referencing that
+investigation/patch, and `regression_test_ids` from the `TestCase` row matching the
+original failing test plus any characterization test for the same component.
+
+**Scope cut**: retrieval is exact-signature match only - the spec also mentions
+"stack + component overlap" as a fuzzier signal, not needed while only one bug
+pattern is recognized end-to-end.
+
+**API:** `GET /runs/{id}/incidents` (recorded by this run), `GET
+/repositories/{id}/incidents` (full repo history, `created_at` desc). **Frontend:**
+Incident Memory.

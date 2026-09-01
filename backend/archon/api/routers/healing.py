@@ -82,6 +82,7 @@ def list_investigations(
             affected_component_ids=r.affected_component_ids,
             recommended_verification=r.recommended_verification,
             confidence=r.confidence, ai_schema_version=r.ai_schema_version,
+            cited_incident_ids=r.cited_incident_ids,
         )
         for r in rows
     ]

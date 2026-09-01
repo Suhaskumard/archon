@@ -61,6 +61,7 @@ from archon.execution.runner import run_existing_tests
 from archon.failure.detection import detect_failures
 from archon.healing.generation import generate_patches
 from archon.healing.ranking import rank_patches
+from archon.incidents.store import record_incidents
 from archon.investigation.engine import investigate_failures
 from archon.jobs.manager import JobManager
 from archon.jobs.state_machine import RunStateMachine
@@ -99,6 +100,7 @@ _ANALYSIS_STAGES = (
     Stage.RANKING_PATCHES,
     Stage.VERIFYING_PATCH,
     Stage.REGRESSION_VERIFYING,
+    Stage.RECORDING_INCIDENT,
 )
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
@@ -136,6 +138,7 @@ class PipelineResult:
     investigations: dict | None = None
     patches: dict | None = None
     verification: dict | None = None
+    incidents: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -182,6 +185,7 @@ class PipelineOrchestrator:
         investigation_summary: dict | None = None
         patch_summary: dict | None = None
         verification_summary: dict | None = None
+        incident_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -264,6 +268,8 @@ class PipelineOrchestrator:
                 verification_summary = self._verifying_patch(session, run, snapshot, clone_result.workspace)
             elif stage is Stage.REGRESSION_VERIFYING:
                 self._regression_verifying(session, run, verification_summary)
+            elif stage is Stage.RECORDING_INCIDENT:
+                incident_summary = self._recording_incident(session, run)
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -302,6 +308,7 @@ class PipelineOrchestrator:
             investigations=investigation_summary,
             patches=patch_summary,
             verification=verification_summary,
+            incidents=incident_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -631,6 +638,14 @@ class PipelineOrchestrator:
             else "No patch reached a VERIFIED regression-clean state",
             produced_by="patch_verification.v1", confidence=1.0,
         )
+
+    def _recording_incident(self, session: Session, run: AnalysisRun) -> dict:
+        summary = record_incidents(session, run)
+        log.info(
+            "incident recording stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
 
     # --- helpers ----------------------------------------------------------
 

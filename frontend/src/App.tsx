@@ -12,6 +12,7 @@ import {
   type Execution,
   type Failure,
   type Hotspot,
+  type Incident,
   type Investigation,
   type LegacyDna,
   type ModuleArch,
@@ -1332,6 +1333,52 @@ function PatchVerificationPanel({ runId }: { runId: string }) {
   );
 }
 
+function IncidentMemoryPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<Incident[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getIncidents(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <h2>Incident Memory</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Failure</th>
+              <th>Root Cause</th>
+              <th>Signature</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="meta">{r.failure_summary}</td>
+                <td>{r.root_cause}</td>
+                <td className="meta">
+                  <code>{r.failure_signature}</code>
+                </td>
+                <td className="meta">{r.confidence.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="meta" style={{ marginTop: 6 }}>
+          Recorded on a VERIFIED patch — retrieved by future investigations of a
+          similar failure as historical context, cited but never overriding fresh
+          evidence.
+        </div>
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -1426,6 +1473,7 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <RootCauseAnalysisPanel runId={run.id} />
               <SelfHealingPanel runId={run.id} />
               <PatchVerificationPanel runId={run.id} />
+              <IncidentMemoryPanel runId={run.id} />
             </>
           )}
 

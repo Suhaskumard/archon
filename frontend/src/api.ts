@@ -338,6 +338,7 @@ export interface Investigation {
   recommended_verification: string[];
   confidence: number;
   ai_schema_version: string;
+  cited_incident_ids: string[];
 }
 
 export interface Patch {
@@ -367,6 +368,23 @@ export interface PatchVerification {
   applies_cleanly: boolean;
   verdict: string;
   execution_ids: string[];
+}
+
+export interface Incident {
+  id: string;
+  run_id: string | null;
+  repo_id: string;
+  failure_signature: string;
+  failure_summary: string;
+  root_cause: string;
+  evidence_ids: string[];
+  affected_component_ids: string[];
+  fix_ref: string | null;
+  patch_id: string | null;
+  regression_test_ids: string[];
+  verification_id: string | null;
+  confidence: number;
+  created_at: string;
 }
 
 export interface ApiError {
@@ -423,4 +441,6 @@ export const api = {
   getInvestigations: (runId: string) => req<Investigation[]>(`/runs/${runId}/investigations`),
   getPatches: (runId: string) => req<Patch[]>(`/runs/${runId}/patches`),
   getVerifications: (runId: string) => req<PatchVerification[]>(`/runs/${runId}/verifications`),
+  getIncidents: (runId: string) => req<Incident[]>(`/runs/${runId}/incidents`),
+  getRepositoryIncidents: (repoId: string) => req<Incident[]>(`/repositories/${repoId}/incidents`),
 };

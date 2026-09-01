@@ -9,7 +9,7 @@ incidents, and recommends a safe modernization order.
 
 * Full plan: [`docs/ARCHON_IMPLEMENTATION_PLAN.md`](docs/ARCHON_IMPLEMENTATION_PLAN.md)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
-* Status: **Phases 1–9 complete** —
+* Status: **Phases 1–10 complete** —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
   [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
   [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph) ·
@@ -18,7 +18,8 @@ incidents, and recommends a safe modernization order.
   [Phase 6](docs/PHASE_6_COMPLETION.md) (change safety, change impact) ·
   [Phase 7](docs/PHASE_7_COMPLETION.md) (Docker sandbox, secure test execution) ·
   [Phase 8](docs/PHASE_8_COMPLETION.md) (characterization, AI test generation, test-gap analysis) ·
-  [Phase 9](docs/PHASE_9_COMPLETION.md) (failure investigation & self-healing)
+  [Phase 9](docs/PHASE_9_COMPLETION.md) (failure investigation & self-healing) ·
+  [Phase 10](docs/PHASE_10_COMPLETION.md) (incident memory)
 
 ## Quick start (local, SQLite)
 

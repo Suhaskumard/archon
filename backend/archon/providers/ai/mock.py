@@ -230,6 +230,18 @@ class MockAIProvider(AIProvider):
             f"detected 'division' hidden assumption at {division.get('location', qn)} "
             f"matches the observed {failure.get('exception_type', 'exception')}."
         )
+        reasoning = (
+            "Matched the failing stack frame's component against an existing "
+            "'division' hidden-assumption finding - not a general inference."
+        )
+        # Phase 10: prior incidents are cited as historical context, never used to
+        # raise/lower confidence or replace the current-evidence hypothesis above
+        # (Principle 15) - the statement/confidence/evidence are unchanged by this.
+        incidents = ctx.get("historical_incidents", [])
+        if incidents:
+            ids = ", ".join(i["id"] for i in incidents)
+            reasoning += f" A similar failure was previously recorded as incident(s) {ids}."
+
         return {
             "summary": f"Root cause: unguarded division by zero in {qn}.",
             "hypotheses": [{
@@ -242,10 +254,7 @@ class MockAIProvider(AIProvider):
             "evidence": [{"kind": "component", "ref": qn, "detail": "root-cause subject"}],
             "confidence": "HIGH",
             "classification": "HYPOTHESIS",
-            "reasoning_summary": (
-                "Matched the failing stack frame's component against an existing "
-                "'division' hidden-assumption finding - not a general inference."
-            ),
+            "reasoning_summary": reasoning,
             "recommended_action": "Generate a guard-against-zero patch and verify it in the sandbox.",
         }
 
