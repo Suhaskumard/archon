@@ -870,3 +870,37 @@ effort / impact, and the plan's confidence + classification.
 **Scope cut**: no Excel "Modernization" sheet - all Excel reporting (§49-50) remains
 unbuilt. No manifest-level deprecated-dependency scan (maps onto AST `DEPRECATED_API`
 findings only). Recommendations are advisory - nothing is auto-applied (Principle 11).
+
+---
+
+## 21. Reporting & bulk I/O (Phase 13, §49-50)
+
+**Excel report.** `GET /runs/{id}/report.xlsx` (the codebase's first binary endpoint)
+returns `ARCHON_Legacy_Analysis.xlsx` - 14 sheets (Executive Summary, Repository
+Understanding, Architecture, Legacy DNA, Change Safety, Change Impact, Technical Debt,
+Test Gaps, Characterization, Failures, Repairs, Modernization, Software Archaeology,
+Incident Memory). `archon/reporting/workbook.py::build_report` renders each sheet from
+`archon/reporting/queries.py`, which is a **thin adapter that calls the existing API
+router functions directly** (all args explicit) - the report and the JSON API share one
+data path, no separate engine (§49). Artifact-backed resources (understanding,
+architecture, evolution) that raise `CONFLICT` before their stage runs are caught and
+rendered as "not scored", so a partial run still yields a full workbook. The bytes are
+also persisted as an `AnalysisArtifact` via the new `core/artifacts.write_bytes`.
+`queries._r()` imports the routers lazily to avoid a `reporting <-> api.app` cycle.
+
+**Bulk input.** `POST /repositories/bulk` (multipart) and `archon bulk-import <xlsx>`
+call `archon/reporting/bulk_import.py::import_repositories_xlsx`. Columns: `Repository
+URL`, `Branch`, `Analysis Mode`, `Priority`. Each row reuses `provider_for` +
+`RepositoryProvider.parse` for deterministic validation, upserts a `Repository`, and
+enqueues an ordinary run through `JobManager.create_run_with_job(priority=...)` - the
+same path as `POST /repositories/{id}/runs`, no new enqueue code. Per-row outcome is
+`created` / `skipped` (dedupe of an in-flight `repo+config`) / `error` (bad URL / mode /
+priority).
+
+**CLI:** `archon report <run_id> [--out]`, `archon bulk-import <xlsx>`. **Frontend:**
+`api.downloadReport` (blob download) + a "Download report (.xlsx)" button on a COMPLETED
+run. **Deps:** `openpyxl>=3.1`, `python-multipart>=0.0.9` (core).
+
+**Scope cut:** the routers still hold their own inline `select` + `*Out` mappers -
+consolidating them onto `queries.py` is Phase 15's de-duplication work; `queries.py`
+calling them as-is already satisfies "one data path".

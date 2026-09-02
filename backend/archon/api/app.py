@@ -15,6 +15,7 @@ from archon.api.routers import (
     healing,
     incidents,
     modernization,
+    reporting,
     repositories,
     runs,
     scoring,
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(incidents.router)
     app.include_router(comparison.router)
     app.include_router(modernization.router)
+    app.include_router(reporting.router)
     return app
 
 

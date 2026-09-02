@@ -1680,6 +1680,18 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               stage: {run.current_stage ?? "—"} · last completed:{" "}
               {run.last_completed_stage ?? "—"} · mode {run.mode}
             </span>
+            {run.state === "COMPLETED" && run.snapshot_id && (
+              <button
+                className="primary"
+                onClick={() =>
+                  void api
+                    .downloadReport(run.id)
+                    .catch((e) => window.alert(String(e)))
+                }
+              >
+                Download report (.xlsx)
+              </button>
+            )}
           </div>
           <div className="bar">
             <div style={{ width: `${run.progress_pct}%` }} />

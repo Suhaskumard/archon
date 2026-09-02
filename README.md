@@ -7,11 +7,13 @@ evidence-backed understanding of the code, scores its risk, generates tests, run
 a sandbox, investigates failures, proposes and verifies minimal patches, remembers
 incidents, and recommends a safe modernization order.
 
-* Full plan: [`docs/ARCHON_IMPLEMENTATION_PLAN.md`](docs/ARCHON_IMPLEMENTATION_PLAN.md)
+* Full plan: `docs/ARCHON_IMPLEMENTATION_PLAN.pdf` · continuation: [`docs/ROADMAP.md`](docs/ROADMAP.md) (Phases 13–18: hardening & completion)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
-* Status: **All 12 phases complete** — the closed loop (ingest → analyse → score →
+* Status: **All 12 spec phases complete** — the closed loop (ingest → analyse → score →
   characterize → execute → investigate → patch → verify → record incident →
-  modernize) runs end to end. —
+  modernize) runs end to end. Phases 13–18 (reporting, test/CI hardening, de-duplication,
+  scoring calibration, frontend modernization, real Claude driver + webhook) are in
+  progress — see [`docs/ROADMAP.md`](docs/ROADMAP.md). —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
   [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
   [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph) ·
@@ -23,7 +25,8 @@ incidents, and recommends a safe modernization order.
   [Phase 9](docs/PHASE_9_COMPLETION.md) (failure investigation & self-healing) ·
   [Phase 10](docs/PHASE_10_COMPLETION.md) (incident memory) ·
   [Phase 11](docs/PHASE_11_COMPLETION.md) (repository comparison) ·
-  [Phase 12](docs/PHASE_12_COMPLETION.md) (modernization)
+  [Phase 12](docs/PHASE_12_COMPLETION.md) (modernization) ·
+  [Phase 13](docs/PHASE_13_COMPLETION.md) (Excel reporting & bulk input)
 
 ## Quick start (local, SQLite)
 

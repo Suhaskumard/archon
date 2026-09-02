@@ -143,6 +143,53 @@ def _print_run(run) -> None:
     typer.echo(json.dumps(out, indent=2, default=str))
 
 
+@app.command()
+def report(
+    run_id: str = typer.Argument(..., help="the analysis run id"),
+    out: str = typer.Option("ARCHON_Legacy_Analysis.xlsx", help="output .xlsx path"),
+) -> None:
+    """Write the 14-sheet Excel report for a run (spec sections 49-50)."""
+    from pathlib import Path
+
+    from archon.db.base import session_scope
+    from archon.db.migrate import upgrade
+    from archon.db.models import AnalysisRun
+    from archon.reporting.workbook import build_report
+
+    get_settings().ensure_dirs()
+    upgrade()
+    with session_scope() as session:
+        if session.get(AnalysisRun, run_id) is None:
+            typer.echo(f"run {run_id!r} not found", err=True)
+            raise typer.Exit(code=1)
+        build_report(session, run_id).save(out)
+    typer.echo(str(Path(out).resolve()))
+
+
+@app.command("bulk-import")
+def bulk_import(
+    xlsx: str = typer.Argument(..., help="path to a repositories.xlsx"),
+) -> None:
+    """Enqueue analysis runs from a repositories.xlsx (spec section 50)."""
+    from archon.db.base import session_scope
+    from archon.db.migrate import upgrade
+    from archon.reporting.bulk_import import import_repositories_xlsx
+
+    get_settings().ensure_dirs()
+    upgrade()
+    with session_scope() as session:
+        results = import_repositories_xlsx(session, xlsx)
+    for r in results:
+        line = f"row {r.row}: {r.status}"
+        if r.run_id:
+            line += f" run={r.run_id}"
+        if r.reason:
+            line += f" ({r.reason})"
+        typer.echo(line)
+    created = sum(1 for r in results if r.status == "created")
+    typer.echo(f"{created} run(s) queued, {len(results) - created} not queued")
+
+
 def main() -> None:  # pragma: no cover
     app()
 

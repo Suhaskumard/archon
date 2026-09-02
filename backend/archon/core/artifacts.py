@@ -102,3 +102,43 @@ def write_text(
 
 def read_text(art: AnalysisArtifact) -> str:
     return Path(art.ref).read_text(encoding="utf-8", errors="replace")
+
+
+def write_bytes(
+    session: Session,
+    run_id: str,
+    kind: str,
+    data: bytes,
+    *,
+    stage: Stage | None = None,
+    ext: str = ".bin",
+    mime: str = "application/octet-stream",
+) -> AnalysisArtifact:
+    """Binary sibling of ``write_text`` (xlsx reports, images, ...)."""
+    path = _run_dir(run_id) / f"{kind}{ext}"
+    path.write_bytes(data)
+    sha = hashlib.sha256(data).hexdigest()
+
+    art = session.scalar(
+        select(AnalysisArtifact).where(
+            AnalysisArtifact.run_id == run_id, AnalysisArtifact.kind == kind
+        )
+    )
+    if art is None:
+        art = AnalysisArtifact(
+            run_id=run_id, kind=kind, storage="fs", ref=str(path),
+            sha256=sha, size_bytes=len(data), mime=mime, stage=stage,
+        )
+        session.add(art)
+    else:
+        art.ref = str(path)
+        art.sha256 = sha
+        art.size_bytes = len(data)
+        art.mime = mime
+        art.stage = stage or art.stage
+    session.flush()
+    return art
+
+
+def read_bytes(art: AnalysisArtifact) -> bytes:
+    return Path(art.ref).read_bytes()

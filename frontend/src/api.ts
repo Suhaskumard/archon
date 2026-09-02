@@ -558,4 +558,21 @@ export const api = {
   getComparison: (comparisonId: string) => req<Comparison>(`/comparisons/${comparisonId}`),
   getModernization: (runId: string) =>
     req<ModernizationRecommendation[]>(`/runs/${runId}/modernization`),
+  downloadReport: async (runId: string): Promise<void> => {
+    const res = await fetch(`/runs/${runId}/report.xlsx`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const e = (body as ApiError).error;
+      throw new Error(e ? `${e.code}: ${e.message}` : `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ARCHON_Legacy_Analysis.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };

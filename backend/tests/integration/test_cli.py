@@ -34,3 +34,30 @@ def test_analyze_rejects_bad_target():
 def test_db_upgrade_is_idempotent():
     assert runner.invoke(app, ["db-upgrade"]).exit_code == 0
     assert runner.invoke(app, ["db-upgrade"]).exit_code == 0
+
+
+def test_bulk_import_and_report(tmp_path, test_repo):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(["Repository URL", "Branch", "Analysis Mode", "Priority"])
+    wb.active.append([str(test_repo), None, "ANALYSIS_ONLY", 5])
+    xlsx = tmp_path / "repos.xlsx"
+    wb.save(xlsx)
+
+    r = runner.invoke(app, ["bulk-import", str(xlsx)])
+    assert r.exit_code == 0, r.output
+    assert "1 run(s) queued" in r.output
+    run_id = next(
+        line.split("run=")[1].strip()
+        for line in r.output.splitlines() if "run=" in line
+    )
+
+    out = tmp_path / "report.xlsx"
+    r2 = runner.invoke(app, ["report", run_id, "--out", str(out)])
+    assert r2.exit_code == 0, r2.output
+    assert out.exists() and out.stat().st_size > 0
+
+    from openpyxl import load_workbook
+
+    assert len(load_workbook(out).sheetnames) == 14
