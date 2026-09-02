@@ -41,7 +41,7 @@ cov:
 	cd $(BACKEND) && ../$(PY) -m pytest -q --cov=archon --cov-report=term-missing
 
 frontend-check:
-	cd frontend && npm ci && npm run typecheck && npm run build
+	cd frontend && npm ci && npm run typecheck && npm run test:cov && npm run build
 
 # Full CI gate: lint + the whole backend suite (Docker-gated tests skip cleanly) + frontend.
 ci: lint test frontend-check

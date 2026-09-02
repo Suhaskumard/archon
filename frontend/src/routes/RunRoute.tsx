@@ -26,7 +26,11 @@ export function RunRoute() {
           </>
         )}
       </h2>
-      {error && <p className="err">{error}</p>}
+      {error && (
+        <p className="err" role="alert">
+          {error}
+        </p>
+      )}
       {!run ? (
         <p className="meta">Loading…</p>
       ) : (
@@ -48,7 +52,14 @@ export function RunRoute() {
               </button>
             )}
           </div>
-          <ProgressBar pct={run.progress_pct} />
+          <ProgressBar
+            pct={run.progress_pct}
+            label={
+              TERMINAL_RUN_STATES.has(run.state)
+                ? (run.last_completed_stage ?? undefined)
+                : (run.current_stage ?? run.last_completed_stage ?? "starting…")
+            }
+          />
 
           {run.error && (
             <div className="card err">
@@ -90,6 +101,8 @@ export function RunRoute() {
             ))}
 
           <h2>Evidence</h2>
+          <div aria-live="polite" aria-atomic="false">
+          <p className="meta">{run.evidence.length} evidence record(s)</p>
           <TableScroll>
             <table>
               <thead>
@@ -117,6 +130,7 @@ export function RunRoute() {
               </tbody>
             </table>
           </TableScroll>
+          </div>
         </>
       )}
     </>

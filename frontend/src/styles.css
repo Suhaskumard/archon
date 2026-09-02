@@ -72,6 +72,36 @@ a { color: var(--accent); cursor: pointer; text-decoration: none; }
 a:hover { text-decoration: underline; }
 .back { margin-bottom: var(--sp-3); display: inline-block; }
 
+/* keyboard focus — visible on every interactive element */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* a button that reads as a link (keyboard-focusable, unlike <a> without href) */
+.linklike {
+  background: none; border: none; padding: 0; color: var(--accent);
+  font: inherit; cursor: pointer; text-decoration: none;
+}
+.linklike:hover { text-decoration: underline; }
+
+.cardlist { list-style: none; margin: 0; padding: 0; }
+
+.progress { display: flex; align-items: center; gap: var(--sp-2); }
+.progress .bar { flex: 1; }
+
+.sparkline { display: block; }
+
+.legend { list-style: none; display: flex; flex-wrap: wrap; gap: var(--sp-3); margin: 0; padding: 0; }
+.legend li { display: flex; align-items: center; gap: 4px; font-size: var(--fs-1); color: var(--text-muted); }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
 .skeleton {
   height: 12px; border-radius: 4px; margin: 6px 0;
   background: linear-gradient(90deg, var(--surface-2), var(--border), var(--surface-2));

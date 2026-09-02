@@ -30,7 +30,8 @@ incidents, and recommends a safe modernization order.
   [Phase 14](docs/PHASE_14_COMPLETION.md) (test & CI hardening — Docker-free analysis, e2e, schema-drift, property tests) ·
   [Phase 15](docs/PHASE_15_COMPLETION.md) (core de-duplication — scoring `_base`, `enum_value`, redaction breadth) ·
   [Phase 16](docs/PHASE_16_COMPLETION.md) (scoring calibration — measured coverage → `legacy_risk.v2`, `understanding.v2`, calibration test) ·
-  [Phase 17](docs/PHASE_17_COMPLETION.md) (frontend architecture — `lib`/`components`/`panels`/`routes`, HashRouter, design tokens)
+  [Phase 17](docs/PHASE_17_COMPLETION.md) (frontend architecture — `lib`/`components`/`panels`/`routes`, HashRouter, design tokens) ·
+  [Phase 18](docs/PHASE_18_COMPLETION.md) (frontend tests — Vitest + a11y/axe + coverage gate, panel states, zoom/pan module graph)
 
 ## Quick start (local, SQLite)
 
@@ -59,7 +60,7 @@ Frontend:
 cd frontend && npm install && npm run dev           # http://127.0.0.1:5173 (proxies to :8000)
 # componentised React SPA (src/lib · src/components · src/panels · src/routes); HashRouter
 # routes #/ (repositories) · #/runs/:id (run view, polls) · #/runs/:id/compare — all deep-linkable
-npm run typecheck && npm run build                  # the CI gate's frontend leg
+npm run typecheck && npm run test:cov && npm run build   # the CI gate's frontend leg (Vitest + axe + 80% coverage)
 ```
 
 Full stack in containers:

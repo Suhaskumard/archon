@@ -39,8 +39,10 @@ export function RepositoryComparisonPanel({ runId, repoId }: PanelProps) {
   return (
     <Panel title="Repository Comparison">
       <div className="row">
-        <span className="meta">baseline run</span>
-        <select value={baseId} onChange={(e) => setBaseId(e.target.value)}>
+        <label className="meta" htmlFor="cmp-base">
+          baseline run
+        </label>
+        <select id="cmp-base" value={baseId} onChange={(e) => setBaseId(e.target.value)}>
           {runs.map((r) => (
             <option key={r.id} value={r.id}>
               {r.snapshot?.commit_sha?.slice(0, 10) ?? r.id} · {r.state} ·{" "}
@@ -52,7 +54,11 @@ export function RepositoryComparisonPanel({ runId, repoId }: PanelProps) {
           {busy ? "Comparing…" : "Compare with this run"}
         </button>
       </div>
-      {err && <p className="err">{err}</p>}
+      {err && (
+        <p className="err" role="alert">
+          {err}
+        </p>
+      )}
 
       {s && rep && (
         <div style={{ marginTop: 8 }}>

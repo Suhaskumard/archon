@@ -1035,7 +1035,40 @@ prod SPA-fallback config is needed. No data path bypasses `src/api.ts`.
 **Design tokens.** `styles/tokens.css` declares the full light palette on bare `:root`,
 re-declares the same tokens with today's dark values under
 `@media (prefers-color-scheme: dark)` and `:root[data-theme="dark"]` (so dark is
-pixel-identical to the pre-Phase-17 UI and a future toggle wins both ways). `styles.css`
+near-identical to the pre-Phase-17 UI and a future toggle wins both ways). `styles.css`
 imports it, references only `var(--*)`, and collapses the run view to one column under
 900 px. `npm run typecheck && npm run build` are green and wired into `make ci` via the
 Phase-14 `frontend-check` target; no component file exceeds ~150 lines.
+
+## 26. Frontend testing, accessibility & visualization (Phase 18)
+
+**Vitest suite with a CI-enforced coverage gate.** `vite.config.ts` gains a `test` block
+(jsdom, globals, `src/test/setup.ts`); `src/test/{fixtures,mockApi}.ts` provide a
+`Partial<T>` factory per DTO and a `makeApi()` fake (`vi.hoisted` + `vi.mock("../../api")`
+is the standard per-spec pattern). 90 tests across 9 files: hook behaviour (`useAsync`
+cancellation, `usePoll` stops at terminal), a data-driven render spec over every panel
+(rows / empty / rejection), route smoke + navigation, `axe()` on all three routes, the
+`api.ts` `fetch` contract, and a WCAG-contrast check. Coverage (v8) is gated on
+`src/{lib,components,panels,routes}` at 80 % lines/funcs/stmts, 75 % branches - `api.ts`
+is excluded and covered separately. `make ci` and the CI `frontend` job run
+`npm run test:cov`.
+
+**Panel state contract.** `components/async-panel.tsx::AsyncPanel` wraps every panel:
+`useAsync` -> skeleton while loading, `role="alert"` banner on error, an `Empty` note when
+the resource is present-but-empty. `hideWhenAbsent` keeps the FULL-only panels (execution,
+failures, healing, incidents, ...) invisible on an ANALYSIS_ONLY run instead of showing a
+wall of empty cards; the "always present" panels (source, architecture, legacy DNA, ...)
+show their state inline.
+
+**Accessibility.** `<header>`/`<main>` landmarks; `Panel` renders `<section
+aria-labelledby>`; the repo list is a `<ul>`; every control has a label or `aria-label`;
+`:focus-visible` rings and a `.visually-hidden` helper in `styles.css`; the run-status bar
+carries `aria-valuetext` with the stage; the evidence table is an `aria-live` region. A
+token-contrast unit test parses `tokens.css` and asserts WCAG AA for both palettes (it
+forced dark `--tone-critical` from `#e5484d` to `#f2666b`).
+
+**Dependency-graph interaction.** `panels/graph-layout.ts::layoutModules` is a pure
+deterministic role-grouped radial layout (testable by asserting positions).
+`panels/module-graph.tsx` adds `viewBox` wheel-zoom (0.3x-3x), pointer drag-pan, a reset
+control, a role-swatch legend, and per-node `<title>` tooltips. `components/ui.tsx` gains a
+reusable `Sparkline` (used by Git Evolution).

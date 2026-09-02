@@ -1,21 +1,31 @@
 import { useEffect, useState } from "react";
-import { api, type ChangeImpact } from "../api";
-import { useAsync, useErrorGuard } from "../lib/hooks";
-import { Panel } from "../components/ui";
+import { AsyncPanel } from "../components/async-panel";
+import { api, type ChangeImpact, type Component } from "../api";
+import { useErrorGuard } from "../lib/hooks";
 import type { PanelProps } from "./types";
 
 export function ChangeImpactPanel({ runId, snapshotId }: PanelProps) {
-  const { data: comps } = useAsync(
-    () => api.listComponents(snapshotId, "&kind=MODULE"),
-    [snapshotId],
+  return (
+    <AsyncPanel
+      title="Change Impact"
+      load={() => api.listComponents(snapshotId, "&kind=MODULE")}
+      deps={[snapshotId]}
+      isEmpty={(c) => c.length === 0}
+      emptyText="No modules to analyse for change impact."
+    >
+      {(comps) => <ChangeImpactBody comps={comps} runId={runId} />}
+    </AsyncPanel>
   );
+}
+
+function ChangeImpactBody({ comps, runId }: { comps: Component[]; runId: string }) {
   const [selected, setSelected] = useState<string>("");
   const [impact, setImpact] = useState<ChangeImpact | null>(null);
   const [busy, setBusy] = useState(false);
   const { err, guard } = useErrorGuard();
 
   useEffect(() => {
-    if (comps && comps.length > 0 && !selected) setSelected(comps[0].id);
+    if (comps.length > 0 && !selected) setSelected(comps[0].id);
   }, [comps, selected]);
 
   const compute = () =>
@@ -30,12 +40,13 @@ export function ChangeImpactPanel({ runId, snapshotId }: PanelProps) {
       }
     });
 
-  if (!comps || comps.length === 0) return null;
-
   return (
-    <Panel title="Change Impact">
+    <>
       <div className="row">
-        <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+        <label className="visually-hidden" htmlFor="ci-select">
+          component
+        </label>
+        <select id="ci-select" value={selected} onChange={(e) => setSelected(e.target.value)}>
           {comps.map((c) => (
             <option key={c.id} value={c.id}>
               {c.qualified_name}
@@ -46,9 +57,13 @@ export function ChangeImpactPanel({ runId, snapshotId }: PanelProps) {
           {busy ? "Computing…" : "Compute impact"}
         </button>
       </div>
-      {err && <p className="err">{err}</p>}
+      {err && (
+        <p className="err" role="alert">
+          {err}
+        </p>
+      )}
       {impact && <ImpactDetail impact={impact} />}
-    </Panel>
+    </>
   );
 }
 

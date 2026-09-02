@@ -32,7 +32,11 @@ export function RepositoriesRoute() {
     <>
       <h2>Add a repository</h2>
       <div className="row">
+        <label className="visually-hidden" htmlFor="repo-url">
+          repository URL or path
+        </label>
         <input
+          id="repo-url"
           placeholder="https://github.com/owner/repo, owner/repo, or a local path"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -43,12 +47,17 @@ export function RepositoriesRoute() {
         </button>
         <button onClick={() => reload()}>Refresh</button>
       </div>
-      {(err || error) && <p className="err">{err || error}</p>}
+      {(err || error) && (
+        <p className="err" role="alert">
+          {err || error}
+        </p>
+      )}
 
       <h2>Repositories</h2>
       {repos && repos.length === 0 && <p className="meta">No repositories yet.</p>}
+      <ul className="cardlist" aria-label="repositories">
       {(repos ?? []).map((r: Repository) => (
-        <div className="card" key={r.id}>
+        <li className="card" key={r.id}>
           <div className="row" style={{ justifyContent: "space-between" }}>
             <div>
               <div className="repo-url">
@@ -65,8 +74,9 @@ export function RepositoriesRoute() {
               <RunsInline repoId={r.id} />
             </div>
           </div>
-        </div>
+        </li>
       ))}
+      </ul>
     </>
   );
 }
@@ -80,6 +90,7 @@ function RunsInline({ repoId }: { repoId: string }) {
       onChange={(e) => e.target.value && navigate(`/runs/${e.target.value}`)}
       defaultValue=""
       title="Open a previous run"
+      aria-label="open a previous run"
     >
       <option value="" disabled>
         {runs.length} run(s)…

@@ -1,23 +1,32 @@
 import { useState } from "react";
-import { api, type Component } from "../api";
-import { useAsync } from "../lib/hooks";
-import { Panel, TableScroll } from "../components/ui";
+import { AsyncPanel } from "../components/async-panel";
+import { api, type Component, type SourceSummary } from "../api";
+import { TableScroll } from "../components/ui";
 import type { PanelProps } from "./types";
 
 export function SourceIntelPanel({ runId, snapshotId }: PanelProps) {
-  const { data: sum, error } = useAsync(() => api.getRunSource(runId), [runId]);
+  return (
+    <AsyncPanel
+      title="Source Intelligence"
+      load={() => api.getRunSource(runId)}
+      deps={[runId]}
+      isEmpty={(s) => !s.analyzed}
+      emptyText="Source analysis did not run for this repository."
+    >
+      {(sum) => <SourceBody sum={sum} snapshotId={snapshotId} />}
+    </AsyncPanel>
+  );
+}
+
+function SourceBody({ sum, snapshotId }: { sum: SourceSummary; snapshotId: string }) {
   const [comps, setComps] = useState<Component[] | null>(null);
-
-  if (error) return <p className="err">source: {error}</p>;
-  if (!sum || !sum.analyzed) return null;
-
   const topComplex = (comps ?? [])
     .filter((c) => typeof c.metrics.complexity === "number")
     .sort((a, b) => (b.metrics.complexity as number) - (a.metrics.complexity as number))
     .slice(0, 8);
 
   return (
-    <Panel title="Source Intelligence">
+    <>
       <div className="row" style={{ gap: 16 }}>
         {Object.entries(sum.components).map(([k, v]) => (
           <span key={k} className="meta">
@@ -44,13 +53,14 @@ export function SourceIntelPanel({ runId, snapshotId }: PanelProps) {
         </div>
       )}
       <div style={{ marginTop: 8 }}>
-        <a
+        <button
+          className="linklike"
           onClick={() => {
             void api.listComponents(snapshotId).then(setComps).catch(() => setComps([]));
           }}
         >
           {comps ? "loaded" : "load components →"}
-        </a>
+        </button>
       </div>
       {topComplex.length > 0 && (
         <TableScroll>
@@ -80,6 +90,6 @@ export function SourceIntelPanel({ runId, snapshotId }: PanelProps) {
           </table>
         </TableScroll>
       )}
-    </Panel>
+    </>
   );
 }

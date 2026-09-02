@@ -1,22 +1,30 @@
-import { api, type ModuleArch } from "../api";
-import { useAsync } from "../lib/hooks";
+import { api, type Architecture, type ModuleArch } from "../api";
+import { AsyncPanel } from "../components/async-panel";
 import { roleColor } from "../components/tokens";
-import { Panel, TableScroll } from "../components/ui";
+import { TableScroll } from "../components/ui";
 import { ModuleGraphSvg } from "./module-graph";
 import type { PanelProps } from "./types";
 
 export function ArchitecturePanel({ runId }: PanelProps) {
-  const { data: arch, error } = useAsync(() => api.getArchitecture(runId), [runId]);
+  return (
+    <AsyncPanel
+      title="Architecture"
+      load={() => api.getArchitecture(runId)}
+      deps={[runId]}
+      isEmpty={(a) => !a.reconstructed}
+      emptyText="Architecture was not reconstructed for this run."
+    >
+      {(arch) => <ArchitectureBody arch={arch} />}
+    </AsyncPanel>
+  );
+}
 
-  if (error) return null; // not reconstructed for this run (e.g. INGEST_ONLY)
-  if (!arch || !arch.reconstructed) return null;
-
+function ArchitectureBody({ arch }: { arch: Architecture }) {
   const modules: ModuleArch[] = [...arch.modules].sort(
     (a, b) => b.betweenness_centrality - a.betweenness_centrality || b.fan_in - a.fan_in,
   );
-
   return (
-    <Panel title="Architecture">
+    <>
       <div className="row" style={{ gap: 12 }}>
         {Object.entries(arch.roles).map(([role, n]) => (
           <span
@@ -77,7 +85,9 @@ export function ArchitecturePanel({ runId }: PanelProps) {
       {arch.layering_violations.length > 0 && (
         <div className="err" style={{ marginTop: 8 }}>
           Layering violations:{" "}
-          {arch.layering_violations.map((v) => `${v.from} → ${v.to} (${v.reason})`).join("; ")}
+          {arch.layering_violations
+            .map((v) => `${v.from} → ${v.to} (${v.reason})`)
+            .join("; ")}
         </div>
       )}
       {arch.cycles.length === 0 && arch.layering_violations.length === 0 && (
@@ -85,6 +95,6 @@ export function ArchitecturePanel({ runId }: PanelProps) {
           No import cycles or layering violations detected.
         </div>
       )}
-    </Panel>
+    </>
   );
 }
