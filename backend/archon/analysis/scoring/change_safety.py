@@ -57,7 +57,7 @@ def _category(score: float) -> str:
     return ChangeSafetyCategory.DANGEROUS.value
 
 
-def change_safety_score(signals: ChangeSafetySignals) -> ScoreResult:
+def change_safety_score(signals: ChangeSafetySignals, *, coverage_is_proxy: bool = True) -> ScoreResult:
     coverage = max(0.0, min(signals.coverage if signals.coverage is not None else 0.0, 1.0))
     caller_risk = max(
         0.0, min(signals.caller_risk_ratio if signals.caller_risk_ratio is not None else 0.0, 1.0)
@@ -79,7 +79,7 @@ def change_safety_score(signals: ChangeSafetySignals) -> ScoreResult:
     # documented proxy this phase; historical change-success-rate/failures are omitted
     # entirely (never silently treated as fully-safe or fully-risky).
     defaulted = {
-        "coverage": True,
+        "coverage": coverage_is_proxy,
         "complexity": signals.complexity is None,
         "coupling": signals.coupling is None or signals.coupling_is_proxy,
         "centrality": signals.centrality is None,
@@ -99,7 +99,7 @@ def change_safety_score(signals: ChangeSafetySignals) -> ScoreResult:
             "weighted": contributions,
             "weights": dict(CHANGE_SAFETY_WEIGHTS),
             "defaulted_signals": defaulted,
-            "coverage_is_proxy": True,
+            "coverage_is_proxy": coverage_is_proxy,
             "coupling_is_proxy": signals.coupling_is_proxy,
             "caller_count": signals.caller_count,
             "historical_change_success_rate_omitted": True,

@@ -29,10 +29,12 @@ ENGINE_VERSIONS: dict[str, str] = {
     "ai_behavior_analysis": "behavior_analysis.v1",
     "ai_assumption_analysis": "assumption_analysis.v1",
     # Phase 5 - legacy DNA, tech debt, hotspots, understanding
-    "legacy_risk": "legacy_risk.v1",
+    # (Phase 16: legacy_risk + understanding -> v2; coverage_refine added; change_safety keeps v1 - param only)
+    "legacy_risk": "legacy_risk.v2",
     "hotspot": "hotspot.v1",
-    "understanding": "understanding.v1",
+    "understanding": "understanding.v2",
     "tech_debt": "tech_debt.v1",
+    "coverage_refine": "coverage_refine.v1",
     # Phase 6 - change safety & change impact
     "change_safety": "change_safety.v1",
     "change_impact": "change_impact.v1",

@@ -28,7 +28,8 @@ incidents, and recommends a safe modernization order.
   [Phase 12](docs/PHASE_12_COMPLETION.md) (modernization) ·
   [Phase 13](docs/PHASE_13_COMPLETION.md) (Excel reporting & bulk input) ·
   [Phase 14](docs/PHASE_14_COMPLETION.md) (test & CI hardening — Docker-free analysis, e2e, schema-drift, property tests) ·
-  [Phase 15](docs/PHASE_15_COMPLETION.md) (core de-duplication — scoring `_base`, `enum_value`, redaction breadth)
+  [Phase 15](docs/PHASE_15_COMPLETION.md) (core de-duplication — scoring `_base`, `enum_value`, redaction breadth) ·
+  [Phase 16](docs/PHASE_16_COMPLETION.md) (scoring calibration — measured coverage → `legacy_risk.v2`, `understanding.v2`, calibration test)
 
 ## Quick start (local, SQLite)
 

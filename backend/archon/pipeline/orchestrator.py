@@ -45,6 +45,10 @@ from archon.analysis.git.persist import analyze_git
 from archon.analysis.graph.derive import derive_edges
 from archon.analysis.scoring.change_impact import run_change_impact
 from archon.analysis.scoring.change_safety_run import run_change_safety
+from archon.analysis.scoring.coverage_refine import (
+    backfill_failure_counts,
+    refine_scores_with_measured_coverage,
+)
 from archon.analysis.scoring.hotspots import run_hotspot_scoring
 from archon.analysis.scoring.legacy_dna import run_legacy_risk
 from archon.analysis.scoring.tech_debt import run_tech_debt_detection
@@ -594,6 +598,10 @@ class PipelineOrchestrator:
                     coverage_text = read_text(artifact)
         gap_summary = analyze_test_gaps(session, run, snapshot, coverage_text)
         result["test_gaps"] = gap_summary.as_dict()
+        refine_summary = refine_scores_with_measured_coverage(
+            session, run, snapshot, coverage_text
+        )
+        result.update(refine_summary.as_dict())
         log.info(
             "execution stage complete",
             extra={"extra_fields": {"run_id": run.id, **result}},
@@ -607,11 +615,13 @@ class PipelineOrchestrator:
         execution = session.get(Execution, execution_id)
         assert execution is not None
         summary = detect_failures(session, run, snapshot, execution, workspace)
+        result = summary.as_dict()
+        result["failure_counts_backfilled"] = backfill_failure_counts(session, run)
         log.info(
             "failure detection stage complete",
-            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+            extra={"extra_fields": {"run_id": run.id, **result}},
         )
-        return summary.as_dict()
+        return result
 
     def _investigating(self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot) -> dict:
         summary = investigate_failures(session, run, snapshot)

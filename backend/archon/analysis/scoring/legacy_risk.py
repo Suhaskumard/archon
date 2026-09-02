@@ -1,12 +1,17 @@
 """Legacy Risk scoring engine (spec section 27).
 
-``legacy_risk.v1`` - a weighted sum of normalized [0, 1] signals, weighted so churn +
+``legacy_risk.v2`` - a weighted sum of normalized [0, 1] signals, weighted so churn +
 complexity + low coverage dominate (spec sec 7: a high-churn/high-complexity/low-coverage
 component must rank riskier than a stable equivalent). ``confidence`` is the fraction of
-signals backed by real data rather than a documented default/proxy - coverage-gap is
-always a proxy in this phase (no real coverage data until Phase 8) and therefore always
-counts against confidence; historical failures have no data at all yet (Phase 9) and are
-omitted from the signal set entirely rather than defaulted to a false "zero risk".
+signals backed by real data rather than a documented default/proxy.
+
+v2: ``coverage`` is a *measured* value (from this run's ``coverage.xml``, applied by
+``coverage_refine.py`` after ``EXECUTING``) when available; on the first analysis of a
+repo, or in ``ANALYSIS_ONLY`` mode, it is still the presence proxy (0.5 if the module has
+a test file, else 0.0) and ``coverage_is_proxy`` stays ``True`` and counts against
+confidence - pass ``coverage_is_proxy=False`` to score with real data. Historical
+failures are recorded on ``LegacyDNA.failure_count`` from v2 on but still omitted from
+the score (rebalancing the weights around them is a future calibration step).
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from archon.analysis.scoring.thresholds import (
 )
 from archon.domain.enums import RiskCategory
 
-LEGACY_RISK_VERSION = "legacy_risk.v1"
+LEGACY_RISK_VERSION = "legacy_risk.v2"
 
 
 @dataclass
@@ -54,7 +59,7 @@ def _category(score: float) -> str:
     return RiskCategory.LOW.value
 
 
-def legacy_risk_score(signals: LegacyRiskSignals) -> ScoreResult:
+def legacy_risk_score(signals: LegacyRiskSignals, *, coverage_is_proxy: bool = True) -> ScoreResult:
     coverage = max(0.0, min(signals.coverage if signals.coverage is not None else 0.0, 1.0))
     normalized = {
         "complexity": _norm(signals.complexity, COMPLEXITY_SCALE),
@@ -74,7 +79,7 @@ def legacy_risk_score(signals: LegacyRiskSignals) -> ScoreResult:
     defaulted = {
         "complexity": signals.complexity is None,
         "churn": signals.churn is None,
-        "coverage_gap": True,
+        "coverage_gap": coverage_is_proxy,
         "coupling": signals.coupling is None or signals.coupling_is_proxy,
         "assumption_count": False,
         "debt_score": signals.debt_score is None,
@@ -92,7 +97,7 @@ def legacy_risk_score(signals: LegacyRiskSignals) -> ScoreResult:
             "weighted": contributions,
             "weights": dict(LEGACY_RISK_WEIGHTS),
             "defaulted_signals": defaulted,
-            "coverage_is_proxy": True,
+            "coverage_is_proxy": coverage_is_proxy,
             "coupling_is_proxy": signals.coupling_is_proxy,
             "historical_failures_omitted": True,
         },

@@ -62,7 +62,7 @@ def test_risk_assessment_mirrors_legacy_dna(scoring_repo):
             r.component_id: r
             for r in s.scalars(
                 select(RiskAssessment).where(
-                    RiskAssessment.run_id == rid, RiskAssessment.engine_version == "legacy_risk.v1"
+                    RiskAssessment.run_id == rid, RiskAssessment.engine_version == "legacy_risk.v2"
                 )
             ).all()
         }

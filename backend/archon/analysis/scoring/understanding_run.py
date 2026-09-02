@@ -166,7 +166,7 @@ def run_understanding(
     artifact = write_json(
         session, run.id, _ARTIFACT_KIND,
         {
-            "schema": "archon.understanding.v1",
+            "schema": "archon.understanding.v2",
             "run_id": run.id, "snapshot_id": snapshot.id,
             "score": result.score, "confidence": result.confidence,
             "dimensions": result.dimensions, "evidence_coverage": result.evidence_coverage,

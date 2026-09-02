@@ -973,3 +973,33 @@ Pure cleanup, no behaviour change (scoring numbers pinned by unit + property tes
   the code (runs from the start of the plan; crash recovery is by requeue). The
   `dict[Stage, _StageSpec]` table + true resume-from-checkpoint are deferred (see
   `PHASE_15_COMPLETION.md`).
+
+---
+
+## 24. Scoring calibration & real-data feedback (Phase 16)
+
+**Measured coverage feeds the scoring engines.** `BUILDING_LEGACY_DNA` /
+`SCORING_HOTSPOTS` run before the sandbox produces `coverage.xml`, so they score with the
+presence proxy (0.5 if the module has a test file, else 0.0). `analysis/scoring/
+coverage_refine.py::refine_scores_with_measured_coverage` runs at the end of `EXECUTING`
+(which already reads `coverage.xml` for test-gap analysis) and rewrites this run's
+`LegacyDNA` + `RiskAssessment` + `Hotspot` rows from the measured per-component coverage:
+`coverage_is_proxy` flips to `False` (raising `confidence`, since coverage-gap is no
+longer a defaulted signal) and (one stage later, from `DETECTING_FAILURES`) `LegacyDNA.failure_count` is backfilled from
+`Failure.parsed_frames[].component_id`. `ANALYSIS_ONLY` runs never reach `EXECUTING`, so
+they keep the proxy - and the Phase-5/6 acceptance tests (now `ANALYSIS_ONLY`) still see
+`coverage == 0.5`. `legacy_risk` -> `v2` (the `coverage_is_proxy` param); `change_safety`
+gained the param but stays `v1` (its `ChangeAssessment` rows are not refined - signal
+reconstruction cost); `coverage_refine.v1` marks the refined rows. `failure_count` is
+recorded but still omitted from the score.
+
+**Non-uniform understanding weights (`understanding.v2`).**
+`UNDERSTANDING_DIMENSION_WEIGHTS` is architecture 1.5 / behavior 1.3 / testing 1.3 /
+dependency 1.0 / historical 0.8 / configuration 0.6 - weighted toward what determines
+whether you can safely change the code.
+
+**Calibration basis.** `thresholds.py` now carries a header explaining every `*_SCALE`
+against the fixture distributions, and `tests/acceptance/test_scoring_calibration.py`
+scores both fixture repos and asserts each planted component lands in its intended
+bucket - so a scale/weight change that mis-ranks a fixture fails a test instead of
+silently drifting.

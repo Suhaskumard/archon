@@ -89,9 +89,14 @@ def test_full_pipeline_end_to_end(test_repo, sandbox_image_available):
         ), "at least one module has an inferred role"
 
         # scoring
-        assert s.scalar(select(LegacyDNA).where(LegacyDNA.run_id == rid)) is not None
+        dna_rows = s.scalars(select(LegacyDNA).where(LegacyDNA.run_id == rid)).all()
+        assert dna_rows
         assert s.scalar(select(Hotspot).where(Hotspot.run_id == rid)) is not None
         assert s.scalar(select(ChangeAssessment).where(ChangeAssessment.run_id == rid)) is not None
+        # Phase 16: a FULL run measured coverage -> Legacy DNA is no longer a proxy,
+        # and failure_count is filled from real Failure rows.
+        assert all(d.coverage_is_proxy is False for d in dna_rows)
+        assert any(d.failure_count and d.failure_count > 0 for d in dna_rows)
 
         # test-gap analysis - inventory.reserve is the planted untested function
         gaps = s.scalars(select(TestGap).where(TestGap.run_id == rid)).all()

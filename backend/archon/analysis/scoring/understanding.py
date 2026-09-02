@@ -1,6 +1,6 @@
 """Repository Understanding scoring engine (spec section 30).
 
-``understanding.v1`` - six dimensions, each an evidence-coverage fraction in [0, 1]:
+``understanding.v2`` - six dimensions, each an evidence-coverage fraction in [0, 1]:
 
     architecture    % of MODULE components with a resolved ``role`` (Phase 3)
     dependency      % of dependency edges that resolved to a real component (Phase 2)
@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from archon.analysis.scoring.thresholds import UNDERSTANDING_DIMENSION_WEIGHTS
 
-UNDERSTANDING_VERSION = "understanding.v1"
+UNDERSTANDING_VERSION = "understanding.v2"
 
 DIMENSIONS = ("architecture", "dependency", "behavior", "historical", "testing", "configuration")
 

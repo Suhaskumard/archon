@@ -1,8 +1,30 @@
-"""Versioned weights/thresholds for the Phase 5-6 scoring engines (spec sections 27-32).
+"""Versioned weights/thresholds for the scoring engines (spec sections 27-32).
 
 Every magic number the scoring engines use lives here so a future version bump touches
 one file. Changing a value here should bump the relevant ``*_VERSION`` constant in its
 engine module.
+
+Calibration basis
+-----------------
+The scales are set so a value "as bad as anything we expect to see in a normal Python
+repo" normalizes to ~1.0. They are pinned to observable outcomes by
+``tests/acceptance/test_scoring_calibration.py``, which scores the two fixture repos and
+asserts each planted component lands in its intended bucket - so a scale change that
+mis-ranks a fixture fails a test rather than silently drifting.
+
+* ``COMPLEXITY_SCALE = 15`` - the scoring fixture's deliberately-gnarly
+  ``pricing_engine.price_for`` (deep nested tier/region branching) sits at cyclomatic
+  ~12; 15 is "a function you would not want to change without tests".
+* ``CHURN_SCALE = 50`` - lines changed across the analyzed history; a file rewritten a
+  few times over a project's life reaches this.
+* ``COUPLING_SCALE = 20`` (fan_in + fan_out) - ``pricing_engine`` has fan_in 4 by
+  design; a module 4-5 other modules import *and* that imports several is genuinely
+  central at ~20.
+* ``AGE_SCALE_DAYS = 730`` - two years; older code carries more accumulated assumptions.
+* ``ASSUMPTION_COUNT_SCALE = 5`` - five hidden-assumption findings on one component is a
+  lot.
+* ``DEBT_SCORE_MAX = 20`` - the weighted-severity sum (LOW 1 / MED 2 / HIGH 4 / CRIT 8)
+  at which ``debt_score`` saturates: e.g. five HIGH-severity findings.
 """
 
 from __future__ import annotations
@@ -42,14 +64,17 @@ HOTSPOT_OVERLAP_MIN_SIGNALS = 3
 HOTSPOT_OVERLAP_BONUS = 1.15
 HOTSPOT_THRESHOLDS: dict[str, float] = {"STABLE": 25.0, "WATCH": 50.0, "RISKY": 75.0}
 
-# --- Repository Understanding weights (understanding.v1, spec sec 30) ---------------
+# --- Repository Understanding weights (understanding.v2, spec sec 30) ---------------
+# Non-uniform (v2): weighted toward the dimensions that most determine whether you can
+# safely *change* the code. Architecture + behaviour + testing understanding matter more
+# than configuration parsing; historical depth is useful context but secondary.
 UNDERSTANDING_DIMENSION_WEIGHTS: dict[str, float] = {
-    "architecture": 1.0,
+    "architecture": 1.5,
+    "behavior": 1.3,
+    "testing": 1.3,
     "dependency": 1.0,
-    "behavior": 1.0,
-    "historical": 1.0,
-    "testing": 1.0,
-    "configuration": 1.0,
+    "historical": 0.8,
+    "configuration": 0.6,
 }
 UNDERSTANDING_HISTORY_DEPTH_DAYS = 180.0  # git span at/above this -> full historical score
 
