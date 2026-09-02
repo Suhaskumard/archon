@@ -9,7 +9,9 @@ incidents, and recommends a safe modernization order.
 
 * Full plan: [`docs/ARCHON_IMPLEMENTATION_PLAN.md`](docs/ARCHON_IMPLEMENTATION_PLAN.md)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
-* Status: **Phases 1–10 complete** —
+* Status: **All 12 phases complete** — the closed loop (ingest → analyse → score →
+  characterize → execute → investigate → patch → verify → record incident →
+  modernize) runs end to end. —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
   [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
   [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph) ·
@@ -20,7 +22,8 @@ incidents, and recommends a safe modernization order.
   [Phase 8](docs/PHASE_8_COMPLETION.md) (characterization, AI test generation, test-gap analysis) ·
   [Phase 9](docs/PHASE_9_COMPLETION.md) (failure investigation & self-healing) ·
   [Phase 10](docs/PHASE_10_COMPLETION.md) (incident memory) ·
-  [Phase 11](docs/PHASE_11_COMPLETION.md) (repository comparison)
+  [Phase 11](docs/PHASE_11_COMPLETION.md) (repository comparison) ·
+  [Phase 12](docs/PHASE_12_COMPLETION.md) (modernization)
 
 ## Quick start (local, SQLite)
 

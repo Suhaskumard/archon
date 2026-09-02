@@ -65,6 +65,7 @@ from archon.incidents.store import record_incidents
 from archon.investigation.engine import investigate_failures
 from archon.jobs.manager import JobManager
 from archon.jobs.state_machine import RunStateMachine
+from archon.modernization.planner import generate_modernization_plan
 from archon.pipeline.support import assess_support
 from archon.providers.repo import provider_for
 from archon.testing.characterization import run_characterization
@@ -101,6 +102,7 @@ _ANALYSIS_STAGES = (
     Stage.VERIFYING_PATCH,
     Stage.REGRESSION_VERIFYING,
     Stage.RECORDING_INCIDENT,
+    Stage.MODERNIZING,
 )
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
@@ -139,6 +141,7 @@ class PipelineResult:
     patches: dict | None = None
     verification: dict | None = None
     incidents: dict | None = None
+    modernization: dict | None = None
 
 
 class PipelineOrchestrator:
@@ -186,6 +189,7 @@ class PipelineOrchestrator:
         patch_summary: dict | None = None
         verification_summary: dict | None = None
         incident_summary: dict | None = None
+        modernization_summary: dict | None = None
 
         for stage in plan:
             self._check_cancel(session, job)
@@ -270,6 +274,9 @@ class PipelineOrchestrator:
                 self._regression_verifying(session, run, verification_summary)
             elif stage is Stage.RECORDING_INCIDENT:
                 incident_summary = self._recording_incident(session, run)
+            elif stage is Stage.MODERNIZING:
+                assert snapshot is not None
+                modernization_summary = self._modernizing(session, run, snapshot)
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
@@ -309,6 +316,7 @@ class PipelineOrchestrator:
             patches=patch_summary,
             verification=verification_summary,
             incidents=incident_summary,
+            modernization=modernization_summary,
         )
 
     # --- stages --------------------------------------------------------------
@@ -643,6 +651,16 @@ class PipelineOrchestrator:
         summary = record_incidents(session, run)
         log.info(
             "incident recording stage complete",
+            extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
+        )
+        return summary.as_dict()
+
+    def _modernizing(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    ) -> dict:
+        summary = generate_modernization_plan(session, run, snapshot)
+        log.info(
+            "modernization stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
         )
         return summary.as_dict()

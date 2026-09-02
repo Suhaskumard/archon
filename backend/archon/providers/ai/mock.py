@@ -326,3 +326,126 @@ class MockAIProvider(AIProvider):
             ),
             "recommended_action": "Add the suggested test, then decide whether the assumption is safe.",
         }
+
+    # Tech-debt categories that make a component worth refactoring.
+    _REFACTOR_DEBT = {
+        "LARGE_CLASS", "LONG_FUNCTION", "DUPLICATE_LOGIC", "LOW_COHESION", "BROAD_EXCEPT",
+        "SILENT_FAILURE", "GLOBAL_STATE", "HARDCODED_CONFIG", "MAGIC_NUMBER", "HIGH_COUPLING",
+    }
+
+    def _op_modernization_recommendation(self, ctx: dict) -> dict:
+        """Map each deterministic finding to a modernization strategy (spec section 46).
+
+        Recognizes a fixed finding->strategy mapping, not general modernization
+        reasoning. Never prefers ``rewrite`` when a cheaper safe option applies
+        (Principle 12). Ordering is computed separately, deterministically, from the
+        dependency + change-safety graph.
+        """
+        targets: list[dict] = ctx.get("targets", [])
+        if not targets:
+            return {
+                "recommendations": [],
+                "evidence": [],
+                "confidence": "UNKNOWN",
+                "classification": "RECOMMENDATION",
+                "reasoning_summary": "No components carried a modernization-worthy signal.",
+                "recommended_action": None,
+            }
+
+        recs: list[dict] = []
+        envelope_evidence: list[dict] = []
+        for t in targets:
+            qn = t.get("qualified_name", "?")
+            cov = t.get("coverage")
+            cat = (t.get("legacy_category") or "").upper()
+            debt = {str(d).upper() for d in t.get("debt_categories", [])}
+            complexity = t.get("complexity") or 0
+            coupling = t.get("coupling") or 0
+            coverage_gap = cov is None or cov < 0.5
+            ref = {"kind": "component", "ref": qn, "detail": "modernization target"}
+            envelope_evidence.append(ref)
+
+            items: list[dict] = []
+            if coverage_gap and cat in ("HIGH", "CRITICAL"):
+                items.append({
+                    "target": qn, "strategy": "add_tests",
+                    "risk": "LOW", "effort": "LOW", "impact": "HIGH",
+                    "rationale": (
+                        f"{qn} is {cat} legacy risk with "
+                        f"{'no' if not cov else 'low'} test coverage - add characterization "
+                        "and unit tests to pin current behaviour before any structural change."
+                    ),
+                    "required_tests": [f"characterization test for {qn}"],
+                    "prerequisites": [],
+                    "evidence": [ref],
+                })
+            if t.get("in_cycle") or "CIRCULAR_DEPENDENCY" in debt:
+                items.append({
+                    "target": qn, "strategy": "extract_dependency",
+                    "risk": "MEDIUM", "effort": "MEDIUM", "impact": "MEDIUM",
+                    "rationale": (
+                        f"{qn} participates in an import cycle - extract the shared "
+                        "abstraction so the modules depend on it instead of each other."
+                    ),
+                    "required_tests": [f"regression tests around {qn}"],
+                    "prerequisites": t.get("recommended_preparation", []),
+                    "evidence": [ref],
+                })
+            if "DEPRECATED_API" in debt:
+                items.append({
+                    "target": qn, "strategy": "replace_dependency",
+                    "risk": "MEDIUM", "effort": "MEDIUM", "impact": "MEDIUM",
+                    "rationale": (
+                        f"{qn} uses a deprecated API - replace it with the supported "
+                        "equivalent before it is removed upstream."
+                    ),
+                    "required_tests": [f"regression tests around {qn}"],
+                    "prerequisites": t.get("recommended_preparation", []),
+                    "evidence": [ref],
+                })
+            if complexity >= 10 or coupling >= 8 or (debt & self._REFACTOR_DEBT):
+                items.append({
+                    "target": qn, "strategy": "refactor",
+                    "risk": "MEDIUM", "effort": "MEDIUM", "impact": "MEDIUM",
+                    "rationale": (
+                        f"{qn} is hard to change safely (complexity {complexity}, "
+                        f"coupling {coupling}, smells: "
+                        f"{', '.join(sorted(debt & self._REFACTOR_DEBT)) or 'none'}) - "
+                        "refactor for clarity and lower coupling."
+                    ),
+                    "required_tests": [f"characterization test for {qn}"],
+                    "prerequisites": [f"add_tests for {qn}"] if coverage_gap else [],
+                    "evidence": [ref],
+                })
+            # rewrite only as a last resort - CRITICAL risk and no cheaper strategy
+            # applied for this target (Principle 12: never a default preference).
+            if not items and cat == "CRITICAL":
+                items.append({
+                    "target": qn, "strategy": "rewrite",
+                    "risk": "HIGH", "effort": "HIGH", "impact": "HIGH",
+                    "rationale": (
+                        f"{qn} is CRITICAL legacy risk and no surgical option (tests, "
+                        "extract, replace, refactor) applies - a bounded rewrite behind "
+                        "its current interface is the remaining path."
+                    ),
+                    "required_tests": [f"full characterization suite for {qn}"],
+                    "prerequisites": [f"add_tests for {qn}"],
+                    "evidence": [ref],
+                })
+            recs.extend(items)
+
+        return {
+            "recommendations": recs,
+            "evidence": envelope_evidence,
+            "confidence": "MEDIUM" if recs else "LOW",
+            "classification": "RECOMMENDATION",
+            "reasoning_summary": (
+                "Mapped each deterministic finding (legacy risk, coverage gap, import "
+                "cycle, deprecated API, tech-debt smells) to a modernization strategy - "
+                "no strategy invented beyond that mapping. Safe ordering is computed "
+                "separately from the dependency + change-safety graph."
+            ),
+            "recommended_action": (
+                "Work the recommendations in order; add tests before any structural change."
+            ),
+        }

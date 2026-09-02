@@ -38,6 +38,7 @@ from archon.domain.enums import (
     HotspotClassification,
     JobState,
     JobType,
+    ModernizationStrategy,
     PatchState,
     ProviderKind,
     RiskCategory,
@@ -929,6 +930,57 @@ class RepositoryComparison(Base, TimestampMixin):
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class ModernizationRecommendation(Base, TimestampMixin):
+    """One ordered step of a safe modernization plan (spec section 46).
+
+    Produced by the ``MODERNIZING`` stage: a mock AI op picks the ``strategy`` /
+    ``risk`` / ``effort`` / ``impact`` / ``rationale`` per target from the run's
+    deterministic findings; the deterministic ``modernization.v1`` engine assigns
+    ``order_index`` from the dependency + change-safety graph. ``target`` is a stable
+    component ``qualified_name`` (or an architecture-area label) - snapshot ids churn,
+    same reasoning as ``Incident`` / ``RepositoryComparison``.
+    """
+
+    __tablename__ = "modernization_recommendations"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "target", "strategy", name="uq_modernization_run_target_strategy"
+        ),
+        Index("ix_modernization_run_order", "run_id", "order_index"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("mod"))
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_id: Mapped[str | None] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="SET NULL")
+    )
+    component_id: Mapped[str | None] = mapped_column(
+        ForeignKey("components.id", ondelete="SET NULL"), index=True
+    )
+    target: Mapped[str] = mapped_column(String(512), nullable=False)
+    strategy: Mapped[ModernizationStrategy] = mapped_column(
+        _enum(ModernizationStrategy), nullable=False
+    )
+    risk: Mapped[str] = mapped_column(String(16), nullable=False)
+    effort: Mapped[str] = mapped_column(String(16), nullable=False)
+    impact: Mapped[str] = mapped_column(String(16), nullable=False)
+    change_safety_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("change_assessments.id", ondelete="SET NULL")
+    )
+    dependencies: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    required_tests: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    prerequisites: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    classification: Mapped[str | None] = mapped_column(String(24))
+    ai_schema_version: Mapped[str | None] = mapped_column(String(64))
+    evidence_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
@@ -948,6 +1000,7 @@ __all__ = [
     "Investigation",
     "Job",
     "LegacyDNA",
+    "ModernizationRecommendation",
     "Patch",
     "PatchVerification",
     "Repository",

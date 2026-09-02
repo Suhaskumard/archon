@@ -49,6 +49,7 @@ contracts later phases must honour. It is the source of truth the spec demands (
 | `analysis/archaeology` | Phase 4 - deterministic behaviour facts + hidden-assumption heuristics + the first AI step. |
 | `analysis/scoring` | Phase 5 - Legacy Risk, Hotspot, Repository Understanding, tech-debt detectors. Phase 6 - Change Safety, Change Impact. |
 | `comparison` | Phase 11 - `differ` (deterministic diff of two runs across architecture / dependencies / Legacy DNA / risk / coverage / change safety), `store` (persist `RepositoryComparison` + report artifact). |
+| `modernization` | Phase 12 - `planner` (the `MODERNIZING` stage): `assemble_targets` from the run's deterministic findings, AI `modernization_recommendation` for strategy/risk/effort/impact, deterministic `modernization.v1` safe ordering from the module import + change-safety graph. |
 | `sandbox` | Phase 7 - `Sandbox` ABC, `DockerSandbox`, container reaper. |
 | `testing` | Phase 7 - existing-test discovery (`discovery.py`). Coverage/gaps/characterization/generation are Phase 8. |
 | `execution` | Phase 7 - runs a test suite through the sandbox, persists `Execution` + artifacts. |
@@ -130,15 +131,13 @@ COMPLETED / FAILED / CANCELLED are terminal (no outgoing edges).
 | mode | executed stages |
 |---|---|
 | `INGEST_ONLY` | INGESTING → SNAPSHOTTING |
-| `ANALYSIS_ONLY` / `FULL` | INGESTING → SNAPSHOTTING → ANALYZING_SOURCE → ANALYZING_GIT → BUILDING_GRAPH → RECONSTRUCTING_ARCHITECTURE → ARCHAEOLOGIZING → SCORING_UNDERSTANDING → BUILDING_LEGACY_DNA → ANALYZING_TECH_DEBT → SCORING_HOTSPOTS → ASSESSING_CHANGE_SAFETY → ANALYZING_CHANGE_IMPACT → ANALYZING_TESTS → CHARACTERIZING → GENERATING_TESTS → EXECUTING _(+ later phases)_ |
+| `ANALYSIS_ONLY` / `FULL` | the full `STAGE_ORDER`: INGESTING → SNAPSHOTTING → … → ANALYZING_CHANGE_IMPACT → ANALYZING_TESTS → CHARACTERIZING → GENERATING_TESTS → EXECUTING → DETECTING_FAILURES → INVESTIGATING → GENERATING_PATCH → RANKING_PATCHES → VERIFYING_PATCH → REGRESSION_VERIFYING → RECORDING_INCIDENT → **MODERNIZING** |
 
-Implemented stages today: **INGESTING**, **SNAPSHOTTING**, **ANALYZING_SOURCE**,
-**ANALYZING_GIT**, **BUILDING_GRAPH**, **RECONSTRUCTING_ARCHITECTURE**, **ARCHAEOLOGIZING**,
-**SCORING_UNDERSTANDING**, **BUILDING_LEGACY_DNA**, **ANALYZING_TECH_DEBT**,
-**SCORING_HOTSPOTS**, **ASSESSING_CHANGE_SAFETY**, **ANALYZING_CHANGE_IMPACT**,
-**ANALYZING_TESTS**, **CHARACTERIZING** (stub), **GENERATING_TESTS** (stub), **EXECUTING**.
-Tests read the last stage via `tests/conftest.terminal_stage(mode)` instead of pinning a
-literal, so a new phase no longer ripples through every test.
+As of Phase 12 **every** declared `Stage` is wired — `MODERNIZING` (the last one) runs
+the modernization planner, so `_STAGE_PLANS[ANALYSIS_ONLY]` and `[FULL]` are the whole
+`STAGE_ORDER` and `terminal_stage("FULL") == Stage.MODERNIZING`. Tests read the last
+stage via `tests/conftest.terminal_stage(mode)` instead of pinning a literal, so
+appending the final phase rippled through no test.
 
 Phase 1 executes the `INGESTING` and `SNAPSHOTTING` prefix and then completes the run in
 `INGEST_ONLY` mode. Analysis stages will _degrade and continue_ on failure (recording a
@@ -735,8 +734,8 @@ A `VERIFIED` patch is recorded as an `Incident` in Phase 10 (§18 below).
 
 ## 18. Incident memory (Phase 10, §44)
 
-The last of the currently-declared `Stage` values before `MODERNIZING` (Phase 12) -
-`RECORDING_INCIDENT` fills the final gap in `_ANALYSIS_STAGES`, no new stage needed.
+`RECORDING_INCIDENT` was the penultimate `Stage`; Phase 12 wired the last one
+(`MODERNIZING`), so `_ANALYSIS_STAGES` is now the complete `STAGE_ORDER`.
 
 **Repository-scoped, not run/snapshot-scoped.** `Component`/`RepositorySnapshot` ids
 change across commits, so `archon/incidents/store.py::compute_failure_signature`
@@ -822,3 +821,52 @@ tables.
 
 **Scope cut**: no Excel "Comparison" sheet - all Excel reporting (§49-50) is still
 unbuilt as of Phase 11.
+
+---
+
+## 20. Modernization (Phase 12, §46)
+
+The final phase. `MODERNIZING` was the one declared `Stage` never in the orchestrator's
+`_ANALYSIS_STAGES`; wiring it is a one-line append, after which
+`terminal_stage("FULL") == Stage.MODERNIZING` and every `last_completed_stage` assertion
+in Phases 2-11 follows automatically (they read `tests/conftest.terminal_stage`, never a
+literal).
+
+**Deterministic targets, AI strategy, deterministic order.** `modernization/planner.py`:
+
+1. `assemble_targets` - every non-test **module** with a modernization-worthy signal
+   (legacy category >= MODERATE, any `TechnicalDebtFinding`, a WATCH+ `Hotspot`, or
+   membership in an import cycle), with its signals rolled up from the run's `LegacyDNA`
+   / `Hotspot` / `ChangeAssessment` rows and its components' tech-debt findings.
+2. AI `modernization_recommendation` (mock) picks `strategy` / `risk` / `effort` /
+   `impact` / `rationale` per target from a **fixed finding->strategy mapping**
+   (coverage gap + HIGH/CRITICAL -> `add_tests`; cycle / `CIRCULAR_DEPENDENCY` ->
+   `extract_dependency`; `DEPRECATED_API` -> `replace_dependency`; complexity/coupling or
+   a structural smell -> `refactor`; `rewrite` only for a `CRITICAL` target when nothing
+   cheaper applied - Principle 12). Wrapped in `try/except (AIProviderError,
+   AIOutputError)` -> degrade-and-continue (a FACT Evidence + empty plan), never a failed
+   run, because modernization is advisory analysis, not the MVP loop.
+3. `compute_safe_order` (`modernization.v1`, deterministic + explainable) reuses
+   `build_module_graph` + `nx.condensation` (so the fixture's deliberate import cycle
+   doesn't break the topological sort), orders SCCs dependencies-first, then within a
+   generation sorts by `(strategy_rank, -change_safety_score, legacy_risk_score, target)`
+   - `add_tests` (0) < `extract_dependency`/`replace_dependency` (1) < `refactor` (2) <
+   `rewrite` (3). Assigns contiguous `order_index`.
+
+**Persistence.** One `modernization_recommendations` row per plan step (`target`,
+`strategy`, `risk`/`effort`/`impact`, `order_index`, `rationale`, `dependencies` =
+in-plan modules this target imports, `required_tests`, `prerequisites`,
+`change_safety_ref`, `confidence`, `classification`, `ai_schema_version`,
+`evidence_ids`), plus one `RECOMMENDATION` `Evidence` row per step whose `refs` carry
+the ordering `breakdown`. Idempotent re-entry (`delete WHERE run_id=?` first). Engine
+versions `modernization.v1` + `ai_modernization_recommendation` =
+`modernization_recommendation.v1`.
+
+**API:** `GET /runs/{id}/modernization` (rows ordered by `order_index`, optional
+`strategy` filter, 404 on unknown run / 409 on a snapshot-less run). **Frontend:**
+Modernization panel in the run view - the ordered table with strategy pills, risk /
+effort / impact, and the plan's confidence + classification.
+
+**Scope cut**: no Excel "Modernization" sheet - all Excel reporting (§49-50) remains
+unbuilt. No manifest-level deprecated-dependency scan (maps onto AST `DEPRECATED_API`
+findings only). Recommendations are advisory - nothing is auto-applied (Principle 11).

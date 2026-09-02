@@ -249,6 +249,17 @@ class Stage(str, enum.Enum):
     MODERNIZING = "MODERNIZING"
 
 
+class ModernizationStrategy(str, enum.Enum):
+    """How to modernize one target (spec section 46). No automatic preference for
+    REWRITE - it is only chosen when no cheaper safe option applies (Principle 12)."""
+
+    ADD_TESTS = "ADD_TESTS"
+    EXTRACT_DEPENDENCY = "EXTRACT_DEPENDENCY"
+    REFACTOR = "REFACTOR"
+    REPLACE_DEPENDENCY = "REPLACE_DEPENDENCY"
+    REWRITE = "REWRITE"
+
+
 class RunState(str, enum.Enum):
     """Analysis run lifecycle (spec section 10)."""
 

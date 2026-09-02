@@ -57,6 +57,9 @@ ENGINE_VERSIONS: dict[str, str] = {
     "incident_memory": "incident_memory.v1",
     # Phase 11 - repository comparison
     "comparison": "comparison.v1",
+    # Phase 12 - modernization
+    "modernization": "modernization.v1",
+    "ai_modernization_recommendation": "modernization_recommendation.v1",
 }
 
 

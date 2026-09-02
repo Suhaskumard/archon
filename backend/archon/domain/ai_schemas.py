@@ -25,6 +25,7 @@ ASSUMPTION_SCHEMA_VERSION = "assumption_analysis.v1"
 TEST_GENERATION_SCHEMA_VERSION = "test_generation.v1"
 ROOT_CAUSE_SCHEMA_VERSION = "root_cause_analysis.v1"
 PATCH_PROPOSAL_SCHEMA_VERSION = "patch_proposal.v1"
+MODERNIZATION_SCHEMA_VERSION = "modernization_recommendation.v1"
 
 
 class EvidenceRef(BaseModel):
@@ -128,6 +129,35 @@ class PatchProposal(AIEnvelope):
     rationale: str = ""
 
 
+class ModernizationItem(BaseModel):
+    """One recommended modernization action for a single target (spec section 46)."""
+
+    target: str  # component qualified_name, or an architecture-area label (e.g. an import cycle)
+    strategy: Literal[
+        "add_tests", "extract_dependency", "refactor", "replace_dependency", "rewrite"
+    ]
+    risk: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+    effort: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+    impact: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+    rationale: str = ""
+    required_tests: list[str] = Field(default_factory=list)
+    prerequisites: list[str] = Field(default_factory=list)
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+
+
+class ModernizationRecommendation(AIEnvelope):
+    """A prioritized modernization plan for the repository (spec section 46).
+
+    The AI only picks the strategy/risk/effort/impact/rationale per target from the
+    deterministic findings it is handed - it never invents targets, and it never
+    prefers ``rewrite`` when a cheaper safe option applies (Principle 12). The safe
+    *ordering* of these items is computed deterministically by
+    ``archon/modernization/planner.py``, not here.
+    """
+
+    recommendations: list[ModernizationItem] = Field(default_factory=list)
+
+
 SCHEMA_VERSIONS: dict[str, str] = {
     "historical_intent": INTENT_SCHEMA_VERSION,
     "behavior_analysis": BEHAVIOR_SCHEMA_VERSION,
@@ -135,6 +165,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "test_generation": TEST_GENERATION_SCHEMA_VERSION,
     "root_cause_analysis": ROOT_CAUSE_SCHEMA_VERSION,
     "patch_proposal": PATCH_PROPOSAL_SCHEMA_VERSION,
+    "modernization_recommendation": MODERNIZATION_SCHEMA_VERSION,
 }
 
 __all__ = [

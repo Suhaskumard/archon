@@ -16,6 +16,7 @@ import {
   type Incident,
   type Investigation,
   type LegacyDna,
+  type ModernizationRecommendation,
   type ModuleArch,
   type Patch,
   type PatchVerification,
@@ -73,6 +74,14 @@ const CHANGE_SAFETY_COLOR: Record<string, string> = {
   CAUTION: "#ffd479",
   RISKY: "#ff9d9d",
   DANGEROUS: "#e5484d",
+};
+
+const MODERNIZATION_STRATEGY_COLOR: Record<string, string> = {
+  ADD_TESTS: "#7ee0a2",
+  EXTRACT_DEPENDENCY: "#ffd479",
+  REPLACE_DEPENDENCY: "#ffd479",
+  REFACTOR: "#ffd479",
+  REWRITE: "#ff9d9d",
 };
 
 const ROLE_COLOR: Record<string, string> = {
@@ -1380,6 +1389,68 @@ function IncidentMemoryPanel({ runId }: { runId: string }) {
   );
 }
 
+function ModernizationPanel({ runId }: { runId: string }) {
+  const [rows, setRows] = useState<ModernizationRecommendation[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getModernization(runId).then((r) => live && setRows(r)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  if (!rows || rows.length === 0) return null;
+  const conf = rows[0].confidence;
+  const cls = rows[0].classification;
+  return (
+    <>
+      <h2>Modernization</h2>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Target</th>
+              <th>Strategy</th>
+              <th>Risk</th>
+              <th>Effort</th>
+              <th>Impact</th>
+              <th>Rationale</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="meta">{r.order_index + 1}</td>
+                <td className="meta">{r.target}</td>
+                <td>
+                  <span
+                    className="pill"
+                    style={{
+                      borderColor: MODERNIZATION_STRATEGY_COLOR[r.strategy],
+                      color: MODERNIZATION_STRATEGY_COLOR[r.strategy],
+                    }}
+                  >
+                    {r.strategy}
+                  </span>
+                </td>
+                <td className="meta">{r.risk}</td>
+                <td className="meta">{r.effort}</td>
+                <td className="meta">{r.impact}</td>
+                <td className="meta">{r.rationale}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="meta" style={{ marginTop: 6 }}>
+          Ordered safest-first from the dependency + change-safety graph — dependencies
+          before dependents, tests before any structural change.{" "}
+          {cls && <span className={`pill ${cls}`}>{cls}</span>} confidence {conf.toFixed(2)}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function signed(n: number | null | undefined, digits = 2): string {
   if (n == null) return "—";
   return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
@@ -1661,6 +1732,7 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <SelfHealingPanel runId={run.id} />
               <PatchVerificationPanel runId={run.id} />
               <IncidentMemoryPanel runId={run.id} />
+              <ModernizationPanel runId={run.id} />
               <RepositoryComparisonPanel runId={run.id} repoId={run.repository_id} />
             </>
           )}

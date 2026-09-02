@@ -469,6 +469,29 @@ export interface Comparison extends ComparisonSummary {
   };
 }
 
+export interface ModernizationRecommendation {
+  id: string;
+  run_id: string;
+  target: string;
+  component_id: string | null;
+  component_qn: string | null;
+  strategy: "ADD_TESTS" | "EXTRACT_DEPENDENCY" | "REFACTOR" | "REPLACE_DEPENDENCY" | "REWRITE";
+  risk: string;
+  effort: string;
+  impact: string;
+  order_index: number;
+  rationale: string | null;
+  dependencies: string[];
+  required_tests: string[];
+  prerequisites: string[];
+  change_safety_ref: string | null;
+  confidence: number;
+  classification: string | null;
+  ai_schema_version: string | null;
+  evidence_ids: string[];
+  created_at: string;
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -533,4 +556,6 @@ export const api = {
       body: JSON.stringify({ base_run_id: baseRunId, head_run_id: headRunId }),
     }),
   getComparison: (comparisonId: string) => req<Comparison>(`/comparisons/${comparisonId}`),
+  getModernization: (runId: string) =>
+    req<ModernizationRecommendation[]>(`/runs/${runId}/modernization`),
 };

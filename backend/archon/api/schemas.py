@@ -495,3 +495,29 @@ class ComparisonSummaryOut(BaseModel):
 class ComparisonOut(ComparisonSummaryOut):
     report: dict
     report_artifact_id: str | None
+
+
+# --- Phase 12: modernization ------------------------------------------------------------
+
+
+class ModernizationRecommendationOut(BaseModel):
+    id: str
+    run_id: str
+    target: str
+    component_id: str | None
+    component_qn: str | None
+    strategy: str
+    risk: str
+    effort: str
+    impact: str
+    order_index: int
+    rationale: str | None
+    dependencies: list
+    required_tests: list
+    prerequisites: list
+    change_safety_ref: str | None
+    confidence: float
+    classification: str | None
+    ai_schema_version: str | None
+    evidence_ids: list
+    created_at: datetime
