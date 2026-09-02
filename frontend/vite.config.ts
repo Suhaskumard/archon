@@ -13,6 +13,7 @@ export default defineConfig({
       "/runs": API,
       "/snapshots": API,
       "/components": API,
+      "/comparisons": API,
       "/healthz": API,
       "/openapi.json": API,
     },

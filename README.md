@@ -19,7 +19,8 @@ incidents, and recommends a safe modernization order.
   [Phase 7](docs/PHASE_7_COMPLETION.md) (Docker sandbox, secure test execution) ·
   [Phase 8](docs/PHASE_8_COMPLETION.md) (characterization, AI test generation, test-gap analysis) ·
   [Phase 9](docs/PHASE_9_COMPLETION.md) (failure investigation & self-healing) ·
-  [Phase 10](docs/PHASE_10_COMPLETION.md) (incident memory)
+  [Phase 10](docs/PHASE_10_COMPLETION.md) (incident memory) ·
+  [Phase 11](docs/PHASE_11_COMPLETION.md) (repository comparison)
 
 ## Quick start (local, SQLite)
 

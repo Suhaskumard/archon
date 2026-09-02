@@ -55,6 +55,8 @@ ENGINE_VERSIONS: dict[str, str] = {
     "patch_verification": "patch_verification.v1",
     # Phase 10 - incident memory
     "incident_memory": "incident_memory.v1",
+    # Phase 11 - repository comparison
+    "comparison": "comparison.v1",
 }
 
 

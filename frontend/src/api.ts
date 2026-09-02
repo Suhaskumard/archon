@@ -387,6 +387,88 @@ export interface Incident {
   created_at: string;
 }
 
+export interface ComparisonSummary {
+  id: string;
+  repo_id: string;
+  base_run_id: string;
+  head_run_id: string;
+  base_snapshot_id: string | null;
+  head_snapshot_id: string | null;
+  base_commit_sha: string | null;
+  head_commit_sha: string | null;
+  summary: {
+    modules_added: number;
+    modules_removed: number;
+    dependencies_added: number;
+    dependencies_removed: number;
+    debt_findings_added: number;
+    debt_findings_resolved: number;
+    mean_legacy_risk_delta: number | null;
+    mean_change_safety_delta: number | null;
+    mean_coverage_delta: number | null;
+    risk_category_regressions: string[];
+    change_safety_regressions: string[];
+  };
+  produced_by: string;
+  created_at: string;
+}
+
+interface ComponentDelta {
+  qualified_name: string;
+  base_score: number;
+  head_score: number;
+  delta: number;
+  base_category: string | null;
+  head_category: string | null;
+}
+
+export interface Comparison extends ComparisonSummary {
+  report_artifact_id: string | null;
+  report: {
+    architecture: {
+      modules_added: string[];
+      modules_removed: string[];
+      role_changes: { qualified_name: string; base_role: string | null; head_role: string | null }[];
+      module_count_base: number;
+      module_count_head: number;
+    };
+    dependencies: {
+      edges_added: string[];
+      edges_removed: string[];
+      edge_count_base: number;
+      edge_count_head: number;
+    };
+    legacy_dna: {
+      added: string[];
+      removed: string[];
+      changed: (ComponentDelta & { debt_delta: number })[];
+      mean_legacy_risk_delta: number | null;
+      risk_category_regressions: string[];
+    };
+    change_safety: {
+      added: string[];
+      removed: string[];
+      changed: ComponentDelta[];
+      mean_change_safety_delta: number | null;
+      change_safety_regressions: string[];
+    };
+    coverage: {
+      is_proxy: boolean;
+      mean_coverage_delta: number | null;
+      components_worse: string[];
+      components_better: string[];
+      changed: { qualified_name: string; base_coverage: number; head_coverage: number; delta: number }[];
+    };
+    technical_debt: {
+      findings_added: { qualified_name: string; category: string; location: string; severity: string | null }[];
+      findings_resolved: { qualified_name: string; category: string; location: string; severity: string | null }[];
+      count_base: number;
+      count_head: number;
+    };
+    risk: { available: boolean; changed?: ComponentDelta[] };
+  };
+}
+
 export interface ApiError {
   error: { code: string; message: string; suggested_action?: string };
 }
@@ -443,4 +525,12 @@ export const api = {
   getVerifications: (runId: string) => req<PatchVerification[]>(`/runs/${runId}/verifications`),
   getIncidents: (runId: string) => req<Incident[]>(`/runs/${runId}/incidents`),
   getRepositoryIncidents: (repoId: string) => req<Incident[]>(`/repositories/${repoId}/incidents`),
+  listComparisons: (repoId: string) =>
+    req<ComparisonSummary[]>(`/repositories/${repoId}/comparisons`),
+  createComparison: (repoId: string, baseRunId: string, headRunId: string) =>
+    req<Comparison>(`/repositories/${repoId}/comparisons`, {
+      method: "POST",
+      body: JSON.stringify({ base_run_id: baseRunId, head_run_id: headRunId }),
+    }),
+  getComparison: (comparisonId: string) => req<Comparison>(`/comparisons/${comparisonId}`),
 };

@@ -48,6 +48,7 @@ contracts later phases must honour. It is the source of truth the spec demands (
 | `analysis/architecture` | Phase 3 - role inference (`roles.v1`) + coupling/centrality metrics + layering check + graph artifact. |
 | `analysis/archaeology` | Phase 4 - deterministic behaviour facts + hidden-assumption heuristics + the first AI step. |
 | `analysis/scoring` | Phase 5 - Legacy Risk, Hotspot, Repository Understanding, tech-debt detectors. Phase 6 - Change Safety, Change Impact. |
+| `comparison` | Phase 11 - `differ` (deterministic diff of two runs across architecture / dependencies / Legacy DNA / risk / coverage / change safety), `store` (persist `RepositoryComparison` + report artifact). |
 | `sandbox` | Phase 7 - `Sandbox` ABC, `DockerSandbox`, container reaper. |
 | `testing` | Phase 7 - existing-test discovery (`discovery.py`). Coverage/gaps/characterization/generation are Phase 8. |
 | `execution` | Phase 7 - runs a test suite through the sandbox, persists `Execution` + artifacts. |
@@ -777,3 +778,47 @@ pattern is recognized end-to-end.
 **API:** `GET /runs/{id}/incidents` (recorded by this run), `GET
 /repositories/{id}/incidents` (full repo history, `created_at` desc). **Frontend:**
 Incident Memory.
+
+---
+
+## 19. Repository comparison (Phase 11, §45)
+
+**On-demand, not a pipeline stage.** Comparison is intrinsically cross-run - it needs
+two runs that already exist - so, like `POST /runs/{id}/change-impact`, it is computed
+on request rather than wired into the single-run `Stage` machine. No `Stage`,
+`STAGE_ORDER`, `_ANALYSIS_STAGES`, or `PipelineResult` change; nothing that pins
+`terminal_stage` shifts.
+
+**Keyed by `qualified_name`, not `component_id`.** Component ids are snapshot-scoped
+and differ between commits; `archon/comparison/differ.py` builds a per-snapshot
+`{component_id -> qualified_name}` map and diffs every section on the stable name (the
+same reasoning incident signatures use). Sections: architecture (modules added /
+removed / role changes), dependencies (`src -kind-> dst` edges added / removed),
+Legacy DNA (per-component `legacy_risk_score` / `debt_score` deltas + `RiskCategory`
+transitions), generic risk (`RiskAssessment`, when present), coverage (the Legacy-DNA
+**proxy** value - flagged `is_proxy`), technical debt (findings added / resolved,
+matched on `(qualified_name, category, location)`), and change safety
+(`safety_score` delta + `ChangeSafetyCategory` transition; a score *drop* is the
+regression, since higher = safer). `summary` rolls the section counts plus the union
+of risk-category regressions up for list views.
+
+**Inputs, not completion.** The API accepts any run that has a snapshot and a
+`last_completed_stage` at or past `ASSESSING_CHANGE_SAFETY` - every diffed table is
+populated by then, so a run that later failed an MVP-loop stage is still comparable.
+`base_run_id == head_run_id`, cross-repository runs, and not-yet-scored runs are
+`409`s.
+
+**Persistence.** One `repository_comparisons` row per ordered `(base_run, head_run)`
+pair (`uq_comparison_run_pair`), upserted on recompute - `summary` + full `report` as
+JSON columns, and the full report also written to disk as an `AnalysisArtifact`
+(`kind = repo_comparison_<comparison_id>`, owned by the head run) for the spec's
+"report as artifact". Engine version `comparison.v1`.
+
+**API:** `POST /repositories/{id}/comparisons` `{base_run_id, head_run_id}` (returns
+the cached row if the pair was already compared), `GET /repositories/{id}/comparisons`
+(summaries, `created_at` desc), `GET /comparisons/{id}` (full report). **Frontend:**
+Repository Comparison panel in the run view - pick a baseline run, get the delta
+tables.
+
+**Scope cut**: no Excel "Comparison" sheet - all Excel reporting (§49-50) is still
+unbuilt as of Phase 11.

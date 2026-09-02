@@ -468,3 +468,30 @@ class IncidentOut(BaseModel):
     verification_id: str | None
     confidence: float
     created_at: datetime
+
+
+# --- Phase 11: repository comparison -------------------------------------------------
+
+
+class ComparisonCreate(BaseModel):
+    base_run_id: str = Field(min_length=1, description="the 'before' run")
+    head_run_id: str = Field(min_length=1, description="the 'after' run")
+
+
+class ComparisonSummaryOut(BaseModel):
+    id: str
+    repo_id: str
+    base_run_id: str
+    head_run_id: str
+    base_snapshot_id: str | None
+    head_snapshot_id: str | None
+    base_commit_sha: str | None
+    head_commit_sha: str | None
+    summary: dict
+    produced_by: str
+    created_at: datetime
+
+
+class ComparisonOut(ComparisonSummaryOut):
+    report: dict
+    report_artifact_id: str | None

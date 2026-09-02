@@ -886,6 +886,49 @@ class Incident(Base, TimestampMixin):
     produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class RepositoryComparison(Base, TimestampMixin):
+    """A diff between two completed analysis runs of the same repository (spec section 45).
+
+    Repository comparison is an on-demand, cross-run operation - it needs two runs
+    that already exist, so (like ``ChangeImpact``) it is computed on request rather
+    than as a single-run pipeline stage. One row per ordered ``(base_run, head_run)``
+    pair; recomputing returns the existing row. The full delta lives in ``report``
+    (also written to disk as an ``AnalysisArtifact`` - the spec's "report as
+    artifact"); ``summary`` is the small rollup for list views.
+    """
+
+    __tablename__ = "repository_comparisons"
+    __table_args__ = (
+        UniqueConstraint("base_run_id", "head_run_id", name="uq_comparison_run_pair"),
+        Index("ix_comparison_repo", "repo_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cmp"))
+    repo_id: Mapped[str] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    base_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    head_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    base_snapshot_id: Mapped[str | None] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="SET NULL")
+    )
+    head_snapshot_id: Mapped[str | None] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="SET NULL")
+    )
+    base_commit_sha: Mapped[str | None] = mapped_column(String(64))
+    head_commit_sha: Mapped[str | None] = mapped_column(String(64))
+    summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    report: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    report_artifact_id: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_artifacts.id", ondelete="SET NULL")
+    )
+    produced_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 __all__ = [
     "AnalysisArtifact",
     "AnalysisRun",
@@ -908,6 +951,7 @@ __all__ = [
     "Patch",
     "PatchVerification",
     "Repository",
+    "RepositoryComparison",
     "RepositorySnapshot",
     "RiskAssessment",
     "TechnicalDebtFinding",

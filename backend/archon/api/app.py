@@ -10,6 +10,7 @@ from archon import __version__
 from archon.api.routers import (
     archaeology,
     architecture,
+    comparison,
     execution,
     healing,
     incidents,
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(execution.router)
     app.include_router(healing.router)
     app.include_router(incidents.router)
+    app.include_router(comparison.router)
     return app
 
 

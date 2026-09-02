@@ -7,6 +7,7 @@ import {
   type ChangeAssessment,
   type ChangeImpact,
   type Characterization,
+  type Comparison,
   type Component,
   type Evolution,
   type Execution,
@@ -1379,6 +1380,192 @@ function IncidentMemoryPanel({ runId }: { runId: string }) {
   );
 }
 
+function signed(n: number | null | undefined, digits = 2): string {
+  if (n == null) return "—";
+  return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
+}
+
+function DeltaCell({ value, goodWhenNegative = true }: { value: number; goodWhenNegative?: boolean }) {
+  const good = goodWhenNegative ? value < 0 : value > 0;
+  const color = Math.abs(value) < 0.05 ? "#9aa4b2" : good ? "#7ee0a2" : "#ff9d9d";
+  return <td className="meta" style={{ color }}>{signed(value)}</td>;
+}
+
+function RepositoryComparisonPanel({ runId, repoId }: { runId: string; repoId: string }) {
+  const [runs, setRuns] = useState<Run[] | null>(null);
+  const [baseId, setBaseId] = useState<string>("");
+  const [cmp, setCmp] = useState<Comparison | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { err, guard } = useError();
+
+  useEffect(() => {
+    let live = true;
+    api
+      .listRuns(repoId)
+      .then((rs) => {
+        if (!live) return;
+        const usable = rs.filter(
+          (r) => r.id !== runId && r.snapshot_id && r.last_completed_stage,
+        );
+        setRuns(usable);
+        if (usable.length > 0) setBaseId(usable[0].id);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [repoId, runId]);
+
+  const compare = () =>
+    guard(async () => {
+      if (!baseId) return;
+      setBusy(true);
+      setCmp(null);
+      try {
+        setCmp(await api.createComparison(repoId, baseId, runId));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+  if (!runs || runs.length === 0) return null;
+  const s = cmp?.summary;
+  const rep = cmp?.report;
+
+  return (
+    <>
+      <h2>Repository Comparison</h2>
+      <div className="card">
+        <div className="row">
+          <span className="meta">baseline run</span>
+          <select value={baseId} onChange={(e) => setBaseId(e.target.value)}>
+            {runs.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.snapshot?.commit_sha?.slice(0, 10) ?? r.id} · {r.state} ·{" "}
+                {new Date(r.created_at).toLocaleString()}
+              </option>
+            ))}
+          </select>
+          <button className="primary" disabled={busy || !baseId} onClick={() => void compare()}>
+            {busy ? "Comparing…" : "Compare with this run"}
+          </button>
+        </div>
+        {err && <p className="err">{err}</p>}
+
+        {s && rep && (
+          <div style={{ marginTop: 8 }}>
+            <div className="row" style={{ gap: 16 }}>
+              <span className="meta">
+                modules <b>+{s.modules_added}</b> / <b>−{s.modules_removed}</b>
+              </span>
+              <span className="meta">
+                dependencies <b>+{s.dependencies_added}</b> / <b>−{s.dependencies_removed}</b>
+              </span>
+              <span className="meta">
+                debt findings <b>+{s.debt_findings_added}</b> / <b>−{s.debt_findings_resolved}</b>
+              </span>
+              <span className="meta">mean legacy-risk Δ <b>{signed(s.mean_legacy_risk_delta)}</b></span>
+              <span className="meta">mean change-safety Δ <b>{signed(s.mean_change_safety_delta)}</b></span>
+              <span className="meta">mean coverage Δ* <b>{signed(s.mean_coverage_delta)}</b></span>
+            </div>
+
+            {(rep.architecture.modules_added.length > 0 ||
+              rep.architecture.modules_removed.length > 0) && (
+              <div className="meta" style={{ marginTop: 8 }}>
+                <b>Modules added:</b>{" "}
+                {rep.architecture.modules_added.join(", ") || "none"} · <b>removed:</b>{" "}
+                {rep.architecture.modules_removed.join(", ") || "none"}
+              </div>
+            )}
+
+            {rep.legacy_dna.changed.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div className="meta"><b>Legacy risk movement</b></div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Component</th><th>Base</th><th>Head</th><th>Δ</th><th>Category</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rep.legacy_dna.changed.map((c) => (
+                      <tr key={c.qualified_name}>
+                        <td className="meta">{c.qualified_name}</td>
+                        <td className="meta">{c.base_score.toFixed(1)}</td>
+                        <td className="meta">{c.head_score.toFixed(1)}</td>
+                        <DeltaCell value={c.delta} />
+                        <td className="meta">
+                          {c.base_category} →{" "}
+                          <span
+                            style={{ color: RISK_CATEGORY_COLOR[c.head_category ?? ""] ?? undefined }}
+                          >
+                            {c.head_category}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {rep.change_safety.changed.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div className="meta"><b>Change safety movement</b></div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Component</th><th>Base</th><th>Head</th><th>Δ</th><th>Category</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rep.change_safety.changed.map((c) => (
+                      <tr key={c.qualified_name}>
+                        <td className="meta">{c.qualified_name}</td>
+                        <td className="meta">{c.base_score.toFixed(1)}</td>
+                        <td className="meta">{c.head_score.toFixed(1)}</td>
+                        <DeltaCell value={c.delta} goodWhenNegative={false} />
+                        <td className="meta">
+                          {c.base_category} →{" "}
+                          <span
+                            style={{ color: CHANGE_SAFETY_COLOR[c.head_category ?? ""] ?? undefined }}
+                          >
+                            {c.head_category}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {(rep.technical_debt.findings_added.length > 0 ||
+              rep.technical_debt.findings_resolved.length > 0) && (
+              <div className="meta" style={{ marginTop: 8 }}>
+                <b>Debt findings added:</b>{" "}
+                {rep.technical_debt.findings_added
+                  .map((f) => `${f.qualified_name} (${f.category})`)
+                  .join(", ") || "none"}
+                <br />
+                <b>Debt findings resolved:</b>{" "}
+                {rep.technical_debt.findings_resolved
+                  .map((f) => `${f.qualified_name} (${f.category})`)
+                  .join(", ") || "none"}
+              </div>
+            )}
+
+            <div className="meta" style={{ marginTop: 6 }}>
+              * coverage is the Legacy-DNA proxy value, not a measured run. Full delta
+              saved as artifact <code>{cmp?.report_artifact_id ?? "—"}</code>.
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
@@ -1474,6 +1661,7 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
               <SelfHealingPanel runId={run.id} />
               <PatchVerificationPanel runId={run.id} />
               <IncidentMemoryPanel runId={run.id} />
+              <RepositoryComparisonPanel runId={run.id} repoId={run.repository_id} />
             </>
           )}
 
