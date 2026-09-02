@@ -11,8 +11,10 @@ omitted from the signal set entirely rather than defaulted to a false "zero risk
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+from archon.analysis.scoring._base import ScoreResult, weighted_score
+from archon.analysis.scoring._base import norm as _norm
 from archon.analysis.scoring.thresholds import (
     AGE_SCALE_DAYS,
     ASSUMPTION_COUNT_SCALE,
@@ -27,12 +29,6 @@ from archon.domain.enums import RiskCategory
 LEGACY_RISK_VERSION = "legacy_risk.v1"
 
 
-def _norm(value: float | None, scale: float) -> float:
-    if value is None or scale <= 0:
-        return 0.0
-    return max(0.0, min(value / scale, 1.0))
-
-
 @dataclass
 class LegacyRiskSignals:
     complexity: float | None = None
@@ -45,17 +41,6 @@ class LegacyRiskSignals:
     age_days: int | None = None
     age_is_defaulted: bool = False
     failure_count: int | None = None  # never scored - kept only for the record (spec: no data yet)
-
-
-@dataclass
-class ScoreResult:
-    score: float
-    category: str
-    confidence: float
-    factor_breakdown: dict = field(default_factory=dict)
-
-    def explain(self) -> dict:
-        return dict(self.factor_breakdown)
 
 
 def _category(score: float) -> str:
@@ -80,9 +65,8 @@ def legacy_risk_score(signals: LegacyRiskSignals) -> ScoreResult:
         "debt_score": max(0.0, min(signals.debt_score or 0.0, 1.0)),
         "age": _norm(signals.age_days, AGE_SCALE_DAYS),
     }
-    contributions = {k: round(normalized[k] * w, 6) for k, w in LEGACY_RISK_WEIGHTS.items()}
-    total_weight = sum(LEGACY_RISK_WEIGHTS.values())
-    score = round(100.0 * sum(contributions.values()) / total_weight, 2) if total_weight else 0.0
+    score_raw, contributions = weighted_score(normalized, LEGACY_RISK_WEIGHTS)
+    score = round(score_raw, 2)
 
     # confidence = fraction of signals backed by real data. coverage-gap is *always* a
     # documented proxy this phase; historical failures are omitted from the count entirely

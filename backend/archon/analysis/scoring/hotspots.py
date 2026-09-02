@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from archon.analysis.scoring._reuse import prior_run_over_snapshot
 from archon.analysis.scoring.hotspot import HOTSPOT_VERSION, HotspotSignals, hotspot_score
 from archon.analysis.scoring.thresholds import DEBT_SCORE_MAX, SEVERITY_WEIGHT
 from archon.core.artifacts import write_json
@@ -46,13 +47,6 @@ class HotspotSummary:
             "by_classification": self.by_classification, "artifact": self.artifact_ref,
         }
 
-
-def _prior_run_id(session: Session, run: AnalysisRun, snapshot_id: str) -> str | None:
-    return session.scalar(
-        select(Hotspot.run_id)
-        .where(Hotspot.snapshot_id == snapshot_id, Hotspot.run_id != run.id)
-        .limit(1)
-    )
 
 
 def _write_artifact(session: Session, run: AnalysisRun, snapshot: RepositorySnapshot):
@@ -108,7 +102,7 @@ def _clone_from_prior(
 def run_hotspot_scoring(
     session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
 ) -> HotspotSummary:
-    prior = _prior_run_id(session, run, snapshot.id)
+    prior = prior_run_over_snapshot(session, run, snapshot.id, Hotspot)
     if prior:
         return _clone_from_prior(session, run, snapshot, prior)
 

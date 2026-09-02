@@ -8,7 +8,7 @@ Sources the ``legacy_risk_score`` signals from data Phases 2-4 already persisted
                  a file path, so it is native at every granularity)
     coupling     Component.metrics["architecture"]["fan_in"/"fan_out"] - native at
                  MODULE, borrowed from the owning module (flagged as a proxy) otherwise
-    coverage     NOT YET REAL DATA (Phase 8). Proxy: 0.5 if the owning module has a
+    coverage     a documented proxy: 0.5 if the owning module has a
                  TESTED_BY edge, else 0.0. Always flagged ``coverage_is_proxy=True``.
     assumptions  count of Phase 4 ``assumptions`` rows for this run, rolled up to the
                  owning module by path
@@ -16,7 +16,8 @@ Sources the ``legacy_risk_score`` signals from data Phases 2-4 already persisted
                  classes, circular dependencies, high coupling) computed inline, because
                  the fixed Stage order runs BUILDING_LEGACY_DNA before ANALYZING_TECH_DEBT
                  - the full 13-detector set is only available to SCORING_HOTSPOTS later.
-    failures     NOT YET AVAILABLE (Phase 9) - omitted entirely, never defaulted to zero.
+    failures     omitted from the signal set entirely, never defaulted to zero (real per-
+                 component failure counts: Phase 16).
 
 Cached per snapshot: a later run over the same commit clones the rows instead of
 recomputing (deterministic, no AI).
@@ -30,6 +31,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from archon.analysis.scoring._reuse import prior_run_over_snapshot
 from archon.analysis.scoring.legacy_risk import (
     LEGACY_RISK_VERSION,
     LegacyRiskSignals,
@@ -120,13 +122,6 @@ def _write_artifact(session: Session, run: AnalysisRun, snapshot: RepositorySnap
     )
 
 
-def _prior_run_id(session: Session, run: AnalysisRun, snapshot_id: str) -> str | None:
-    return session.scalar(
-        select(LegacyDNA.run_id)
-        .where(LegacyDNA.snapshot_id == snapshot_id, LegacyDNA.run_id != run.id)
-        .limit(1)
-    )
-
 
 def _clone_from_prior(
     session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, prior_run_id: str
@@ -175,7 +170,7 @@ def _clone_from_prior(
 def run_legacy_risk(
     session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
 ) -> LegacyDnaSummary:
-    prior = _prior_run_id(session, run, snapshot.id)
+    prior = prior_run_over_snapshot(session, run, snapshot.id, LegacyDNA)
     if prior:
         return _clone_from_prior(session, run, snapshot, prior)
 

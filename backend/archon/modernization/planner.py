@@ -42,7 +42,13 @@ from archon.db.models import (
 )
 from archon.domain import ai_schemas
 from archon.domain.ai_schemas import MODERNIZATION_SCHEMA_VERSION
-from archon.domain.enums import Classification, ComponentKind, ModernizationStrategy, Stage
+from archon.domain.enums import (
+    Classification,
+    ComponentKind,
+    ModernizationStrategy,
+    Stage,
+    enum_value,
+)
 from archon.providers.ai import get_ai_provider
 from archon.providers.ai.base import AIOutputError, AIProviderError
 
@@ -84,10 +90,6 @@ class ModernizationSummary:
         }
 
 
-def _cat(value: object) -> str:
-    return (value.value if hasattr(value, "value") else str(value)).upper() if value is not None else ""
-
-
 def assemble_targets(
     session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
 ) -> list[dict]:
@@ -95,6 +97,7 @@ def assemble_targets(
         session.scalars(select(Component).where(Component.snapshot_id == snapshot.id)).all()
     )
     qn_of = {c.id: c.qualified_name for c in comps}
+    comp_by_id = {c.id: c for c in comps}
     module_by_path = {c.path: c for c in comps if c.kind is ComponentKind.MODULE}
     module_qn_of_path = {p: c.qualified_name for p, c in module_by_path.items()}
 
@@ -123,13 +126,13 @@ def assemble_targets(
         # tech-debt findings hang off file/function/class components; roll them up to
         # the owning module via shared path.
         owner_qn = None
-        if f.component_id and f.component_id in qn_of:
-            comp = next((c for c in comps if c.id == f.component_id), None)
-            owner_qn = module_qn_of_path.get(comp.path) if comp else None
+        comp = comp_by_id.get(f.component_id) if f.component_id else None
+        if comp is not None:
+            owner_qn = module_qn_of_path.get(comp.path)
         if owner_qn is None and f.location:
             owner_qn = module_qn_of_path.get(f.location.split(":")[0])
         if owner_qn:
-            debt_by_module[owner_qn].add(_cat(f.category))
+            debt_by_module[owner_qn].add(enum_value(f.category))
 
     mg = build_module_graph(session, snapshot.id)
     cycle_qns = {qn for cyc in find_cycles(mg) for qn in cyc}
@@ -143,8 +146,8 @@ def assemble_targets(
         hot = hotspots.get(qn)
         ca = change.get(qn)
         debt = debt_by_module.get(qn, set())
-        cat = _cat(dna.category) if dna else ""
-        hot_cls = _cat(hot.classification) if hot else ""
+        cat = enum_value(dna.category) if dna else ""
+        hot_cls = enum_value(hot.classification) if hot else ""
         coverage = dna.coverage if dna else None
 
         worthy = (
@@ -164,7 +167,7 @@ def assemble_targets(
             "complexity": (dna.complexity if dna else None) or (c.metrics or {}).get("complexity"),
             "coupling": dna.coupling if dna else None,
             "change_safety_score": round(ca.safety_score, 4) if ca else None,
-            "change_safety_category": _cat(ca.risk_category) if ca else None,
+            "change_safety_category": enum_value(ca.risk_category) if ca else None,
             "change_assessment_id": ca.id if ca else None,
             "in_cycle": qn in cycle_qns,
             "hotspot": hot_cls or None,

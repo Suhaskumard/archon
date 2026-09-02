@@ -11,7 +11,7 @@ Sources signals from data Phases 2-5 already persisted:
                  cross-engine signal - reads Phase 5's rows from the same run)
     assumptions  same rollup as Legacy Risk
     churn        Component.metrics["git"]["churn"]
-    historical change-success rate / historical failures  NOT YET AVAILABLE (Phase 9+),
+    historical change-success rate / historical failures  omitted from the signal set,
                  omitted entirely - never defaulted
 
 Cached per snapshot exactly like Legacy Risk: a later run over the same commit clones

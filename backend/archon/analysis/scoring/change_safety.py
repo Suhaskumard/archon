@@ -15,8 +15,10 @@ denominator entirely - never defaulted to a false "fully safe" or "fully risky" 
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+from archon.analysis.scoring._base import ScoreResult, weighted_score
+from archon.analysis.scoring._base import norm as _norm
 from archon.analysis.scoring.thresholds import (
     ASSUMPTION_COUNT_SCALE,
     CENTRALITY_SCALE,
@@ -31,12 +33,6 @@ from archon.domain.enums import ChangeSafetyCategory
 CHANGE_SAFETY_VERSION = "change_safety.v1"
 
 
-def _norm(value: float | None, scale: float) -> float:
-    if value is None or scale <= 0:
-        return 0.0
-    return max(0.0, min(value / scale, 1.0))
-
-
 @dataclass
 class ChangeSafetySignals:
     coverage: float | None = None  # 0..1, higher = more covered (always a proxy this phase)
@@ -48,17 +44,6 @@ class ChangeSafetySignals:
     caller_count: int = 0
     assumption_count: int = 0
     churn: float | None = None
-
-
-@dataclass
-class ScoreResult:
-    score: float
-    category: str
-    confidence: float
-    factor_breakdown: dict = field(default_factory=dict)
-
-    def explain(self) -> dict:
-        return dict(self.factor_breakdown)
 
 
 def _category(score: float) -> str:
@@ -87,9 +72,8 @@ def change_safety_score(signals: ChangeSafetySignals) -> ScoreResult:
         "assumption_count": 1.0 - _norm(signals.assumption_count, ASSUMPTION_COUNT_SCALE),
         "churn": 1.0 - _norm(signals.churn, CHURN_SCALE),
     }
-    contributions = {k: round(safe_norm[k] * w, 6) for k, w in CHANGE_SAFETY_WEIGHTS.items()}
-    total_weight = sum(CHANGE_SAFETY_WEIGHTS.values())
-    score = round(100.0 * sum(contributions.values()) / total_weight, 2) if total_weight else 0.0
+    score_raw, contributions = weighted_score(safe_norm, CHANGE_SAFETY_WEIGHTS)
+    score = round(score_raw, 2)
 
     # confidence = fraction of signals backed by real data. coverage is *always* a
     # documented proxy this phase; historical change-success-rate/failures are omitted

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from archon.analysis.scoring._base import norm as _norm
+from archon.analysis.scoring._base import weighted_score
 from archon.analysis.scoring.thresholds import (
     ASSUMPTION_COUNT_SCALE,
     CHURN_SCALE,
@@ -24,12 +26,6 @@ from archon.analysis.scoring.thresholds import (
 from archon.domain.enums import HotspotClassification
 
 HOTSPOT_VERSION = "hotspot.v1"
-
-
-def _norm(value: float | None, scale: float) -> float:
-    if value is None or scale <= 0:
-        return 0.0
-    return max(0.0, min(value / scale, 1.0))
 
 
 @dataclass
@@ -73,9 +69,7 @@ def hotspot_score(signals: HotspotSignals) -> ScoreResult:
         "assumption_count": _norm(signals.assumption_count, ASSUMPTION_COUNT_SCALE),
         "debt_score": max(0.0, min(signals.debt_score or 0.0, 1.0)),
     }
-    contributions = {k: round(normalized[k] * w, 6) for k, w in HOTSPOT_WEIGHTS.items()}
-    total_weight = sum(HOTSPOT_WEIGHTS.values())
-    base = 100.0 * sum(contributions.values()) / total_weight if total_weight else 0.0
+    base, contributions = weighted_score(normalized, HOTSPOT_WEIGHTS)
 
     elevated = sorted(k for k, v in normalized.items() if v >= HOTSPOT_OVERLAP_SIGNAL_THRESHOLD)
     overlap = len(elevated) >= HOTSPOT_OVERLAP_MIN_SIGNALS

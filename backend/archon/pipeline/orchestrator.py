@@ -1,9 +1,15 @@
 """Pipeline orchestrator.
 
 Walks the executable prefix of the analysis state machine for a run, one stage at a time,
-persisting ``last_completed_stage`` so resumption is well-defined. Which stages run is
-decided by ``run.mode`` (``_STAGE_PLANS``); every stage is idempotent (re-running a stage
-first clears the rows it owns).
+persisting ``last_completed_stage`` as a checkpoint. Which stages run is decided by
+``run.mode`` (``_STAGE_PLANS``); every stage is idempotent (re-running a stage first
+clears the rows it owns).
+
+``run()`` runs a job from the start of its plan. A crash mid-run leaves the run in
+``RUNNING`` with ``last_completed_stage`` set; recovery is by requeue (the worker's
+stale-heartbeat sweep) starting a fresh run - the in-process objects a resumed stage
+needs (the clone workspace) are not reconstructed here. True resume-from-checkpoint is
+tracked for Phase 20 (operability).
 
 Implemented stages:
     INGESTING                  validate + fetch metadata + secure clone into a fresh workspace
@@ -280,6 +286,12 @@ class PipelineOrchestrator:
             elif stage is Stage.MODERNIZING:
                 assert snapshot is not None
                 modernization_summary = self._modernizing(session, run, snapshot)
+            else:  # pragma: no cover - _STAGE_PLANS is a closed set
+                raise ArchonError(
+                    ErrorCode.INTERNAL,
+                    f"orchestrator has no handler for stage {stage.value!r}",
+                    recoverability=Recoverability.NON_RECOVERABLE,
+                )
 
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)

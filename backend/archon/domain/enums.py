@@ -5,6 +5,17 @@ from __future__ import annotations
 import enum
 
 
+def enum_value(x: object) -> str:
+    """``x.value`` if ``x`` is an Enum, else ``str(x)`` (``""`` for ``None``).
+
+    The one canonical replacement for the ad-hoc ``x.value if hasattr(x, "value")``
+    dance sprinkled through the DTO mappers and diff engines.
+    """
+    if x is None:
+        return ""
+    return x.value if isinstance(x, enum.Enum) else str(x)
+
+
 class Classification(str, enum.Enum):
     """Every stored conclusion is tagged with one of these (spec section 4)."""
 
@@ -219,7 +230,7 @@ class Stage(str, enum.Enum):
     """Analysis pipeline stages (spec sections 10, 67).
 
     Phase 1 implements INGESTING and SNAPSHOTTING; the remaining stages are declared now
-    so the state machine is complete and unambiguous, and are wired up in later phases.
+    so the state machine is complete and unambiguous. As of Phase 14 every value is wired.
     """
 
     INGESTING = "INGESTING"

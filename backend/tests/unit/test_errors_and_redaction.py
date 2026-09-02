@@ -33,3 +33,22 @@ def test_redact_scrubs_tokens_and_urls():
         "ok": "v",
     }
     assert "ghp_" not in redact("bare token ghp_abcdefghijklmnop1234 here")
+
+
+def test_redact_scrubs_non_github_credential_shapes():
+    samples = {
+        "anthropic": "key=sk-ant-api03-AAAABBBBCCCCDDDDEEEE1234",
+        "openai": "sk-AAAABBBBCCCCDDDDEEEEFFFF1234",
+        "aws": "id AKIAIOSFODNN7EXAMPLE done",
+        "bearer": "Authorization: Bearer abcdefghijklmnop1234567890XYZ",
+        "jwt": "tok eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        "pat": "github_pat_11ABCDEFG0abcdefghijkl_mnopqrstuvwxyz012345",
+    }
+    for label, s in samples.items():
+        out = redact(s)
+        assert "***" in out, label
+        for leak in ("sk-ant-", "AKIA", "eyJ", "github_pat_"):
+            assert leak not in out or label not in ("anthropic", "aws", "jwt", "pat")
+    # also scrubbed inside a nested extra_fields dict
+    nested = redact({"ctx": {"authorization": "Bearer abcdefghij1234567890KLMNOP"}})
+    assert nested["ctx"]["authorization"] == "***"

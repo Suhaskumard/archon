@@ -945,3 +945,31 @@ risk" exception). Complements the hand-picked ordering tests.
 (`npm ci && typecheck && build`). `.github/workflows/ci.yml` runs three jobs: `backend`
 (no-Docker pytest), `frontend`, and `full-suite-docker` (`make sandbox-image` + full
 pytest). `hypothesis>=6` added to `[dev]`; `[tool.coverage]` config for `make cov`.
+
+---
+
+## 23. Core de-duplication (Phase 15)
+
+Pure cleanup, no behaviour change (scoring numbers pinned by unit + property tests).
+
+- **`analysis/scoring/_base.py`** — the one `norm()` (clamp `value/scale` to `[0,1]`),
+  `weighted_score(normalized, weights) -> (raw_score, contributions)`, and the shared
+  `ScoreResult` (`score` / `category` / `confidence` / `factor_breakdown` + `explain()`)
+  used by `legacy_risk` and `change_safety`. `weighted_score` returns an *unrounded*
+  score so Hotspot (overlap bonus, rounds once at the end) stays bit-identical.
+- **`analysis/scoring/_reuse.py`** — `prior_run_over_snapshot(session, run, snapshot_id,
+  model)`: the identical "another run already scored this snapshot?" lookup that drove
+  the snapshot-scoped result cloning in both `legacy_dna` and `hotspots`. The
+  `_clone_from_prior` / `_write_artifact` bodies stay per-engine (model-specific columns
+  + artifact schema).
+- **`domain/enums.py::enum_value(x)`** — `x.value` for an Enum else `str(x)` (`""` for
+  `None`); replaces the three ad-hoc `_cat()` copies in `comparison/differ.py` and
+  `modernization/planner.py`.
+- **`core/logging.py`** — `redact()` now scrubs Anthropic (`sk-ant-`), OpenAI-style
+  (`sk-`), AWS (`AKIA`), GitHub fine-grained PAT (`github_pat_`), `Bearer <token>` and
+  JWT shapes, in message strings and nested `extra_fields`, not only classic GitHub PATs.
+- **`pipeline/orchestrator.py`** — the stage dispatch `if/elif` chain gained a terminal
+  `else: raise ArchonError(INTERNAL, …)`; the docstring's resumption claim now matches
+  the code (runs from the start of the plan; crash recovery is by requeue). The
+  `dict[Stage, _StageSpec]` table + true resume-from-checkpoint are deferred (see
+  `PHASE_15_COMPLETION.md`).

@@ -22,7 +22,7 @@ from archon.db.models import (
     RiskAssessment,
     TechnicalDebtFinding,
 )
-from archon.domain.enums import ComponentKind
+from archon.domain.enums import ComponentKind, enum_value
 
 COMPARISON_VERSION = "comparison.v1"
 
@@ -32,10 +32,6 @@ _CHANGE_SAFETY_ORDER = ["SAFE", "CAUTION", "RISKY", "DANGEROUS"]
 
 # Numeric deltas smaller than this are treated as noise (scores are 0-100 floats).
 _EPS = 0.05
-
-
-def _cat(value: object) -> str | None:
-    return value.value if hasattr(value, "value") else (value if value is None else str(value))
 
 
 def _mean(xs: Iterable[float]) -> float | None:
@@ -99,7 +95,7 @@ def _edge_set(session: Session, snapshot_id: str) -> set[tuple[str, str, str]]:
         if src is None:
             continue
         dst = qn.get(d.dst_component_id) if d.dst_component_id else f"ext:{d.target_name}"
-        edges.add((src, dst, _cat(d.kind) or ""))
+        edges.add((src, dst, enum_value(d.kind) or ""))
     return edges
 
 
@@ -141,7 +137,7 @@ def _diff_legacy_dna(
         b, h = base[qn], head[qn]
         delta = round(h.legacy_risk_score - b.legacy_risk_score, 4)
         deltas.append(delta)
-        bc, hc = _cat(b.category), _cat(h.category)
+        bc, hc = enum_value(b.category), enum_value(h.category)
         if _regressed(_RISK_ORDER, bc, hc):
             regressions.append(qn)
         if abs(delta) >= _EPS or bc != hc:
@@ -192,7 +188,7 @@ def _diff_risk(session: Session, base_run: AnalysisRun, head_run: AnalysisRun) -
         b, h = base[qn], head[qn]
         delta = round(h.score - b.score, 4)
         deltas.append(delta)
-        bc, hc = _cat(b.category), _cat(h.category)
+        bc, hc = enum_value(b.category), enum_value(h.category)
         if _regressed(_RISK_ORDER, bc, hc):
             regressions.append(qn)
         if abs(delta) >= _EPS or bc != hc:
@@ -251,7 +247,7 @@ def _diff_coverage(
 
 
 def _debt_key(f: TechnicalDebtFinding, qn: dict[str, str]) -> tuple[str, str, str]:
-    return (qn.get(f.component_id or "", "?"), _cat(f.category) or "", f.location)
+    return (qn.get(f.component_id or "", "?"), enum_value(f.category) or "", f.location)
 
 
 def _diff_technical_debt(
@@ -274,13 +270,13 @@ def _diff_technical_debt(
             "qualified_name": key[0],
             "category": key[1],
             "location": key[2],
-            "severity": _cat(f.severity),
+            "severity": enum_value(f.severity),
         }
 
     def counts(rows: Iterable[TechnicalDebtFinding]) -> dict[str, int]:
         out: dict[str, int] = {}
         for f in rows:
-            out[_cat(f.category) or "?"] = out.get(_cat(f.category) or "?", 0) + 1
+            out[enum_value(f.category) or "?"] = out.get(enum_value(f.category) or "?", 0) + 1
         return out
 
     added = [render(head[k], k) for k in sorted(set(head) - set(base))]
@@ -323,7 +319,7 @@ def _diff_change_safety(
         # higher safety_score = safer; a drop is a regression
         delta = round(h.safety_score - b.safety_score, 4)
         deltas.append(delta)
-        bc, hc = _cat(b.risk_category), _cat(h.risk_category)
+        bc, hc = enum_value(b.risk_category), enum_value(h.risk_category)
         if _regressed(_CHANGE_SAFETY_ORDER, bc, hc) or delta <= -_EPS:
             regressions.append(qn)
         if abs(delta) >= _EPS or bc != hc:
