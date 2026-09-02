@@ -104,9 +104,12 @@ _ANALYSIS_STAGES = (
     Stage.RECORDING_INCIDENT,
     Stage.MODERNIZING,
 )
+# ANALYSIS_ONLY stops before CHARACTERIZING - every stage through ANALYZING_TESTS is
+# pure DB/AST/git work; CHARACTERIZING is the first stage that needs the Docker sandbox.
+_ANALYSIS_ONLY_STAGES = _ANALYSIS_STAGES[: _ANALYSIS_STAGES.index(Stage.CHARACTERIZING)]
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
-    RunMode.ANALYSIS_ONLY: _ANALYSIS_STAGES,
+    RunMode.ANALYSIS_ONLY: _ANALYSIS_ONLY_STAGES,
     RunMode.FULL: _ANALYSIS_STAGES,
 }
 

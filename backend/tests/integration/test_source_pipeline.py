@@ -66,7 +66,7 @@ def test_source_stage_populates_components_and_dependencies(test_repo):
         run = session.get(AnalysisRun, run_id)
         assert session.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
-        assert run.last_completed_stage is terminal_stage("FULL")
+        assert run.last_completed_stage is terminal_stage("ANALYSIS_ONLY")
         sid = run.snapshot_id
 
         kinds = _kind_counts(session, sid)

@@ -55,7 +55,7 @@ def test_exact_source_inventory_for_fixture(test_repo):
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
         # ANALYSIS_ONLY now continues past source into the Phase 3 architecture stages
-        assert run.last_completed_stage is terminal_stage("FULL")
+        assert run.last_completed_stage is terminal_stage("ANALYSIS_ONLY")
         assert any(e.stage is Stage.ANALYZING_SOURCE for e in run.evidence)
         sid = run.snapshot_id
 

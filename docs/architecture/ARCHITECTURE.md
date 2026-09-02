@@ -904,3 +904,44 @@ run. **Deps:** `openpyxl>=3.1`, `python-multipart>=0.0.9` (core).
 **Scope cut:** the routers still hold their own inline `select` + `*Out` mappers -
 consolidating them onto `queries.py` is Phase 15's de-duplication work; `queries.py`
 calling them as-is already satisfies "one data path".
+
+---
+
+## 22. Test & CI hardening (Phase 14)
+
+**`RunMode.ANALYSIS_ONLY` now stops at `ANALYZING_TESTS`** (the last sandbox-free stage;
+`CHARACTERIZING` is the first that needs the Docker sandbox). `RunMode.FULL` is still the
+whole `STAGE_ORDER` through `MODERNIZING`. `_ANALYSIS_ONLY_STAGES =
+_ANALYSIS_STAGES[:index(CHARACTERIZING)]` in `pipeline/orchestrator.py`;
+`conftest.terminal_stage("ANALYSIS_ONLY")` resolves to `Stage.ANALYZING_TESTS`
+automatically. Effect: **the entire deterministic-analysis + scoring + test-discovery
+pipeline is Docker-free-testable**. ~24 test files whose assertions only read
+analysis/scoring rows were switched from `FULL` to `ANALYSIS_ONLY`; the
+execution/characterization/healing/incidents API tests gained an autouse
+`_needs_sandbox` fixture so they *skip* (not fail) without `archon-sandbox:latest`.
+
+**`tests/acceptance/test_end_to_end.py`** — the spec's single named e2e test
+(Docker-gated): one `FULL` run over `build_test_repo`, asserting a real row at every
+stage boundary (snapshot SHA -> components/deps -> 3 commits -> a module with an
+inferred role -> Legacy-DNA/Hotspot/Change-Safety -> the planted `TestGap` on
+`inventory.reserve` -> the planted `ZeroDivisionError` -> investigation names `divide`
+-> a `VERIFIED` patch with `regression_pass` -> one `Incident` -> a `Modernization`
+plan -> `build_report` renders 14 sheets).
+
+**`tests/unit/test_schema_drift.py`** — `alembic.autogenerate.compare_metadata(migrated
+DB, Base.metadata)` must have no *structural* diff (`add_table` / `add_column` /
+`add_constraint` / …). The migrations build tables from live model metadata via
+`create_all(tables=[...])`, so a fresh DB always matches - but a production DB migrated
+before a model gained a column would silently diverge; this catches that. SQLite's lossy
+`modify_type` / `modify_default` reflection on `EnumString` / `_enum` VARCHAR + bool is
+filtered out.
+
+**`tests/unit/test_scoring_properties.py`** — Hypothesis proofs for `legacy_risk`,
+`hotspot`, `change_safety`, `understanding`: `0 <= score <= 100`, `0 <= confidence <= 1`,
+category in the enum, and monotonicity in every signal (with the §7 "more coverage lowers
+risk" exception). Complements the hand-picked ordering tests.
+
+**CI:** `make ci` = `lint` + full `pytest` (Docker tests skip) + `frontend-check`
+(`npm ci && typecheck && build`). `.github/workflows/ci.yml` runs three jobs: `backend`
+(no-Docker pytest), `frontend`, and `full-suite-docker` (`make sandbox-image` + full
+pytest). `hypothesis>=6` added to `[dev]`; `[tool.coverage]` config for `make cov`.

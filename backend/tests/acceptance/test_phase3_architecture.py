@@ -42,7 +42,7 @@ def _run(test_repo) -> str:
         repo = Repository(provider=provider.kind, url=ref.canonical_url, name=ref.name)
         s.add(repo)
         s.flush()
-        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.FULL).run_id
+        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.ANALYSIS_ONLY).run_id
     w = Worker()
     while w.tick():
         pass
@@ -67,7 +67,7 @@ def test_exact_architecture_for_fixture(test_repo):
         run = s.get(AnalysisRun, rid)
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
-        assert run.last_completed_stage is terminal_stage("FULL")
+        assert run.last_completed_stage is terminal_stage("ANALYSIS_ONLY")
         sid = run.snapshot_id
 
         roles = {
@@ -162,7 +162,7 @@ def test_rerun_reuses_cached_architecture(test_repo):
         run1 = s.get(AnalysisRun, r1)
         sid = run1.snapshot_id
         job = JobManager().create_run_with_job(
-            s, repository_id=run1.repository_id, mode=RunMode.FULL, config_hash="alt"
+            s, repository_id=run1.repository_id, mode=RunMode.ANALYSIS_ONLY, config_hash="alt"
         )
         r2 = job.run_id
     w = Worker()

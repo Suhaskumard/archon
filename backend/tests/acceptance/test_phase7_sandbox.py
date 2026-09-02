@@ -37,7 +37,7 @@ def _run(repo_path) -> str:
     return rid
 
 
-def test_run_completes_at_executing(test_repo):
+def test_run_completes_at_executing(test_repo, sandbox_image_available):
     rid = _run(test_repo)
     with session_scope() as s:
         run = s.get(AnalysisRun, rid)
@@ -48,7 +48,7 @@ def test_run_completes_at_executing(test_repo):
             assert key in run.engine_versions
 
 
-def test_normal_suite_runs_and_results_are_captured(test_repo):
+def test_normal_suite_runs_and_results_are_captured(test_repo, sandbox_image_available):
     rid = _run(test_repo)
     with session_scope() as s:
         run = s.get(AnalysisRun, rid)

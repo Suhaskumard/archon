@@ -38,7 +38,7 @@ def _full_run(test_repo) -> str:
         repo = Repository(provider=provider.kind, url=ref.canonical_url, name=ref.name)
         s.add(repo)
         s.flush()
-        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.FULL).run_id
+        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.ANALYSIS_ONLY).run_id
     w = Worker()
     while w.tick():
         pass
@@ -51,7 +51,7 @@ def test_pipeline_reconstructs_architecture(test_repo):
         run = s.get(AnalysisRun, rid)
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
-        assert run.last_completed_stage is terminal_stage("FULL")
+        assert run.last_completed_stage is terminal_stage("ANALYSIS_ONLY")
         sid = run.snapshot_id
 
         # every component has a role (module role mirrored onto descendants)
@@ -155,7 +155,7 @@ def test_architecture_is_cached_per_snapshot(test_repo):
             )
         ).role
         job = JobManager().create_run_with_job(
-            s, repository_id=repo_id, mode=RunMode.FULL, config_hash="v2"
+            s, repository_id=repo_id, mode=RunMode.ANALYSIS_ONLY, config_hash="v2"
         )
         r2 = job.run_id
     w = Worker()

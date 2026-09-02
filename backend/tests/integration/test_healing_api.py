@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _needs_sandbox(sandbox_image_available):
+    """Every test here drives a FULL run through EXECUTING - skip cleanly without Docker."""
+
 
 def _completed(client, repo_path, run_worker_once):
     repo = client.post("/repositories", json={"url": str(repo_path)}).json()

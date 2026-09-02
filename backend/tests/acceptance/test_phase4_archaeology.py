@@ -42,7 +42,7 @@ def _run(test_repo) -> str:
         repo = Repository(provider=provider.kind, url=ref.canonical_url, name=ref.name)
         s.add(repo)
         s.flush()
-        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.FULL).run_id
+        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.ANALYSIS_ONLY).run_id
     w = Worker()
     while w.tick():
         pass
@@ -65,7 +65,7 @@ def test_git_history_recovered(test_repo):
         run = s.get(AnalysisRun, rid)
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
-        assert run.last_completed_stage is terminal_stage("FULL")
+        assert run.last_completed_stage is terminal_stage("ANALYSIS_ONLY")
         sid = run.snapshot_id
 
         assert s.scalar(select(func.count(Commit.id)).where(Commit.snapshot_id == sid)) == 3

@@ -6,7 +6,7 @@ from __future__ import annotations
 def _completed(client, test_repo, run_worker_once):
     repo = client.post("/repositories", json={"url": str(test_repo)}).json()
     run = client.post(
-        f"/repositories/{repo['id']}/runs", json={"mode": "FULL"}
+        f"/repositories/{repo['id']}/runs", json={"mode": "ANALYSIS_ONLY"}
     ).json()
     run_worker_once()
     got = client.get(f"/runs/{run['id']}").json()

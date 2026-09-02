@@ -33,7 +33,7 @@ def _run(repo_path) -> str:
         repo = Repository(provider=provider.kind, url=ref.canonical_url, name=ref.name)
         s.add(repo)
         s.flush()
-        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.FULL).run_id
+        rid = jobs.create_run_with_job(s, repository_id=repo.id, mode=RunMode.ANALYSIS_ONLY).run_id
     w = Worker()
     while w.tick():
         pass
@@ -56,7 +56,7 @@ def test_run_completes_at_analyzing_change_impact(scoring_repo):
         run = s.get(AnalysisRun, rid)
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
         assert run.state is RunState.COMPLETED
-        assert run.last_completed_stage is terminal_stage("FULL")
+        assert run.last_completed_stage is terminal_stage("ANALYSIS_ONLY")
         for key in ("change_safety", "change_impact"):
             assert key in run.engine_versions
 

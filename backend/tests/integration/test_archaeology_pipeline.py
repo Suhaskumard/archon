@@ -22,7 +22,7 @@ from archon.providers.repo import provider_for
 from tests.conftest import terminal_stage
 
 
-def _full_run(test_repo, mode=RunMode.FULL) -> str:
+def _full_run(test_repo, mode=RunMode.ANALYSIS_ONLY) -> str:
     jobs = JobManager()
     with session_scope() as s:
         provider = provider_for(str(test_repo))
@@ -42,7 +42,7 @@ def test_archaeology_populates_behavior_and_assumptions(test_repo):
     with session_scope() as s:
         run = s.get(AnalysisRun, rid)
         assert s.get(Job, run.job.id).state is JobState.SUCCEEDED
-        assert run.last_completed_stage is terminal_stage("FULL")
+        assert run.last_completed_stage is terminal_stage("ANALYSIS_ONLY")
         sid = run.snapshot_id
 
         assumptions = s.scalars(select(Assumption).where(Assumption.run_id == rid)).all()
@@ -99,7 +99,7 @@ def test_archaeology_cached_by_copying_rows(test_repo):
         )
         a1 = s.scalar(select(func.count(Assumption.id)).where(Assumption.run_id == r1))
         job = JobManager().create_run_with_job(
-            s, repository_id=run1.repository_id, mode=RunMode.FULL, config_hash="v2"
+            s, repository_id=run1.repository_id, mode=RunMode.ANALYSIS_ONLY, config_hash="v2"
         )
         r2 = job.run_id
     w = Worker()

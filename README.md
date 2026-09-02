@@ -26,7 +26,8 @@ incidents, and recommends a safe modernization order.
   [Phase 10](docs/PHASE_10_COMPLETION.md) (incident memory) ·
   [Phase 11](docs/PHASE_11_COMPLETION.md) (repository comparison) ·
   [Phase 12](docs/PHASE_12_COMPLETION.md) (modernization) ·
-  [Phase 13](docs/PHASE_13_COMPLETION.md) (Excel reporting & bulk input)
+  [Phase 13](docs/PHASE_13_COMPLETION.md) (Excel reporting & bulk input) ·
+  [Phase 14](docs/PHASE_14_COMPLETION.md) (test & CI hardening — Docker-free analysis, e2e, schema-drift, property tests)
 
 ## Quick start (local, SQLite)
 
@@ -64,9 +65,10 @@ docker compose -f docker/docker-compose.yml up --build
 ## Tests
 
 ```bash
-make sandbox-image                                     # build the Docker sandbox image once (Phase 7)
-cd backend && ../.venv/Scripts/python -m pytest        # 284 passing (sandbox tests skip cleanly if Docker/the image is missing)
+cd backend && ../.venv/Scripts/python -m pytest        # runs with no Docker: analysis suite passes, sandbox tests skip cleanly
+make sandbox-image                                     # build the Docker sandbox image once (Phase 7) to also run execution/healing/e2e tests
 ../.venv/Scripts/python -m ruff check archon tests alembic
+make ci                                                # lint + backend tests + frontend typecheck/build (the CI gate)
 ```
 
 ## Layout
