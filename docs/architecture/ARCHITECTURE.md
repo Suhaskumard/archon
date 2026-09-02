@@ -1003,3 +1003,39 @@ against the fixture distributions, and `tests/acceptance/test_scoring_calibratio
 scores both fixture repos and asserts each planted component lands in its intended
 bucket - so a scale/weight change that mis-ranks a fixture fails a test instead of
 silently drifting.
+
+## 25. Frontend architecture (Phase 17)
+
+**From one flat 1 780-line `App.tsx` to a componentised, routed SPA.** The frontend is
+now four layers under `frontend/src/`:
+
+- **`lib/hooks.ts`** - `useAsync(fn, deps)` (fetch + cancel-on-unmount + captured error +
+  `reload()`), `usePoll(fn, deps, isTerminal, intervalMs)` (chained `setTimeout`, stops at
+  a terminal value, clears on unmount), `useErrorGuard()` (imperative POST flows). These
+  replace ~20 hand-rolled `useEffect` blocks that tracked a mounted flag and swallowed
+  errors with `catch(() => undefined)`.
+- **`components/`** - `ui.tsx` (`Panel`, `Pill`, `ProgressBar`, `DeltaCell`, `TableScroll`,
+  `ErrorBanner`, `LoadingSkeleton`, `Empty`, `signed()`); `tokens.ts` maps a domain value
+  to a semantic tone (`good` / `warn` / `bad` / `critical` / `neutral` / `info`) and a role
+  to a CSS hue var. The ten inline colour maps from the old `App.tsx` collapse into
+  `tokens.ts`; no panel carries a hard-coded hex.
+- **`panels/`** - one file per analysis panel (~21), each `(props: PanelProps) => JSX`
+  using `useAsync` + the `ui` primitives, self-guarding (renders nothing when its resource
+  is absent for the run mode). `panels/index.ts` exports the ordered `RUN_PANELS` registry
+  that `RunRoute` maps over.
+- **`routes/`** - `RepositoriesRoute` (`/`), `RunRoute` (`/runs/:id`, polls run status via
+  `usePoll`), `CompareRoute` (`/runs/:id/compare`). `App.tsx` is a ~20-line `<Routes>`
+  shell; `main.tsx` mounts `<HashRouter>`.
+
+**Routing model: `HashRouter`.** `GET /runs/:id` is a real JSON API endpoint and the Vite
+dev proxy forwards every `/runs/*` path to the backend, so client routes live under the
+fragment (`#/runs/:id`) - deep-linkable, refresh-safe, back/forward works, and no proxy or
+prod SPA-fallback config is needed. No data path bypasses `src/api.ts`.
+
+**Design tokens.** `styles/tokens.css` declares the full light palette on bare `:root`,
+re-declares the same tokens with today's dark values under
+`@media (prefers-color-scheme: dark)` and `:root[data-theme="dark"]` (so dark is
+pixel-identical to the pre-Phase-17 UI and a future toggle wins both ways). `styles.css`
+imports it, references only `var(--*)`, and collapses the run view to one column under
+900 px. `npm run typecheck && npm run build` are green and wired into `make ci` via the
+Phase-14 `frontend-check` target; no component file exceeds ~150 lines.

@@ -1,0 +1,159 @@
+/* ARCHON design tokens (Phase 17).
+ *
+ * `:root` carries the full LIGHT palette. Dark mode re-declares the same tokens
+ * with today's values, so dark is pixel-identical to the pre-Phase-17 UI. An
+ * explicit `data-theme` on <html> wins over the OS preference in both directions
+ * (no toggle UI ships in this phase — the hook points are here for a later one).
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* surfaces + text (light) */
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --border: #d9dee6;
+  --text: #1a1d24;
+  --text-muted: #5b6675;
+  --accent: #2f6bd8;
+  --accent-ink: #ffffff;
+  --code-bg: #f0f2f5;
+
+  /* semantic tones (light — darkened for contrast on white) */
+  --tone-good: #1a7f47;
+  --tone-good-border: #9bd9b4;
+  --tone-warn: #8a5d00;
+  --tone-warn-border: #e6c98a;
+  --tone-bad: #c0392b;
+  --tone-bad-border: #e6a79f;
+  --tone-critical: #b3261e;
+  --tone-critical-border: #e09a94;
+  --tone-neutral: #5b6675;
+  --tone-neutral-border: #d9dee6;
+  --tone-info: #2f6bd8;
+  --tone-info-border: #a9c4ef;
+
+  /* categorical role hues (kept identical across themes) */
+  --role-api: #3576e0;
+  --role-cli: #5b8def;
+  --role-entrypoint: #9a5cd0;
+  --role-domain: #1a7f47;
+  --role-model: #8a5d00;
+  --role-io: #c0392b;
+  --role-util: #5b6675;
+  --role-config: #0f8f80;
+  --role-test: #6b7280;
+  --role-unknown: #9aa1ac;
+
+  /* graph strokes */
+  --graph-edge: #c2c9d4;
+  --graph-arrow: #8b95a4;
+  --graph-node-stroke: #ffffff;
+  --graph-cycle: #d63d3d;
+
+  /* scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --fs-1: 12px;
+  --fs-2: 13px;
+  --fs-3: 15px;
+  --fs-4: 20px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-pill: 999px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115;
+    --surface: #1a1d24;
+    --surface-2: #14171d;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --text-muted: #9aa4b2;
+    --accent: #5b9dff;
+    --accent-ink: #06121f;
+    --code-bg: #000000;
+
+    --tone-good: #7ee0a2;
+    --tone-good-border: #2f6b47;
+    --tone-warn: #ffd479;
+    --tone-warn-border: #7a6327;
+    --tone-bad: #ff9d9d;
+    --tone-bad-border: #7a3030;
+    --tone-critical: #e5484d;
+    --tone-critical-border: #7a2f31;
+    --tone-neutral: #9aa4b2;
+    --tone-neutral-border: #2a2f3a;
+    --tone-info: #5b9dff;
+    --tone-info-border: #2f4d7a;
+
+    --role-api: #5b9dff;
+    --role-cli: #8ab4f8;
+    --role-entrypoint: #c58af9;
+    --role-domain: #7ee0a2;
+    --role-model: #ffd479;
+    --role-io: #ff9d9d;
+    --role-util: #9aa4b2;
+    --role-config: #6ee7d6;
+    --role-test: #b0b8c4;
+    --role-unknown: #4a5160;
+
+    --graph-edge: #3a4150;
+    --graph-arrow: #5a6472;
+    --graph-node-stroke: #0f1115;
+    --graph-cycle: #ff5555;
+  }
+}
+
+/* explicit override — future theme toggle */
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #1a1d24;
+  --surface-2: #14171d;
+  --border: #2a2f3a;
+  --text: #e6e8ec;
+  --text-muted: #9aa4b2;
+  --accent: #5b9dff;
+  --accent-ink: #06121f;
+  --code-bg: #000000;
+
+  --tone-good: #7ee0a2;
+  --tone-good-border: #2f6b47;
+  --tone-warn: #ffd479;
+  --tone-warn-border: #7a6327;
+  --tone-bad: #ff9d9d;
+  --tone-bad-border: #7a3030;
+  --tone-critical: #e5484d;
+  --tone-critical-border: #7a2f31;
+  --tone-neutral: #9aa4b2;
+  --tone-neutral-border: #2a2f3a;
+  --tone-info: #5b9dff;
+  --tone-info-border: #2f4d7a;
+
+  --role-api: #5b9dff;
+  --role-cli: #8ab4f8;
+  --role-entrypoint: #c58af9;
+  --role-domain: #7ee0a2;
+  --role-model: #ffd479;
+  --role-io: #ff9d9d;
+  --role-util: #9aa4b2;
+  --role-config: #6ee7d6;
+  --role-test: #b0b8c4;
+  --role-unknown: #4a5160;
+
+  --graph-edge: #3a4150;
+  --graph-arrow: #5a6472;
+  --graph-node-stroke: #0f1115;
+  --graph-cycle: #ff5555;
+}
+
+:root[data-theme="light"] {
+  /* light is the bare :root default — nothing to re-declare */
+  color-scheme: light;
+}
