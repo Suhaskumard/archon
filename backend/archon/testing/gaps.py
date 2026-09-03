@@ -64,7 +64,8 @@ def _has_naive_test(component: Component, discovered_test_names: set[str]) -> bo
 
 
 def identify_untested_components(
-    session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, *, limit: int | None = None
+    session: Session, run: AnalysisRun, snapshot: RepositorySnapshot, *,
+    limit: int | None = None, scope_component_ids: list[str] | None = None,
 ) -> list[Component]:
     """Structural (no-coverage) candidate list: FUNCTION/METHOD components with no
     discovered test whose name naively matches them. Cheap enough to recompute in every
@@ -74,6 +75,9 @@ def identify_untested_components(
     ``is_test`` on the MODULE component for a test file, never on the FUNCTION/METHOD
     rows inside it (see ``testing/discovery.py``), so without this a test function with
     no test of its own (nothing tests a test) would otherwise look "untested" too.
+
+    ``scope_component_ids`` (Phase 19, INCREMENTAL): when given, keep only candidates
+    whose id is in that set or that share a changed file's path.
     """
     test_module_paths = set(
         session.scalars(
@@ -92,6 +96,10 @@ def identify_untested_components(
         )
     ).all()
     comps = [c for c in comps if c.path not in test_module_paths]
+    if scope_component_ids is not None:
+        scoped = set(scope_component_ids)
+        scoped_paths = {c.path for c in comps if c.id in scoped}
+        comps = [c for c in comps if c.id in scoped or c.path in scoped_paths]
     discovered_names = set(
         session.scalars(select(TestCase.name).where(TestCase.run_id == run.id)).all()
     )

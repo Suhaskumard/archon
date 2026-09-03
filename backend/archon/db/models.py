@@ -128,7 +128,11 @@ class AnalysisRun(Base, TimestampMixin):
     snapshot_id: Mapped[str | None] = mapped_column(
         ForeignKey("repository_snapshots.id", ondelete="SET NULL"), index=True
     )
-    mode: Mapped[RunMode] = mapped_column(_enum(RunMode), default=RunMode.INGEST_ONLY, nullable=False)
+    # EnumString (plain VARCHAR): RunMode grows each phase (INGEST_ONLY -> ANALYSIS_ONLY ->
+    # INCREMENTAL) - avoid a CHECK-constraint migration every time, same as Dependency.kind.
+    mode: Mapped[RunMode] = mapped_column(
+        EnumString(RunMode), default=RunMode.INGEST_ONLY, nullable=False
+    )
     requested_ref: Mapped[str | None] = mapped_column(String(255))
     state: Mapped[RunState] = mapped_column(
         _enum(RunState), default=RunState.PENDING, nullable=False, index=True
@@ -139,6 +143,12 @@ class AnalysisRun(Base, TimestampMixin):
     config_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     progress_pct: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     error: Mapped[dict | None] = mapped_column(JSON)
+    # Phase 19: how this run was started. ``trigger`` is None for API/CLI/bulk runs,
+    # ``{"source": "webhook", "event": "push", "sha", "before", "delivery_id"}`` for a
+    # push-triggered run. ``changed_paths`` carries the webhook's changed-file list for
+    # INCREMENTAL scoping; None otherwise.
+    trigger: Mapped[dict | None] = mapped_column(JSON)
+    changed_paths: Mapped[dict | None] = mapped_column(JSON)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -224,6 +234,43 @@ class Job(Base, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     run: Mapped[AnalysisRun] = relationship(back_populates="job")
+
+
+class WebhookDelivery(Base, TimestampMixin):
+    """One received provider webhook delivery (spec section 51).
+
+    Recorded for every delivery - handled or ignored - so replays can be rejected
+    (``X-GitHub-Delivery`` is unique per provider) and the receive->enqueue decision is
+    auditable. A ``push`` that resolves to a registered repo with real file changes gets
+    an INCREMENTAL ``AnalysisRun`` linked via ``run_id``.
+    """
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        UniqueConstraint("provider", "delivery_id", name="uq_webhook_delivery"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("whd"))
+    provider: Mapped[ProviderKind] = mapped_column(_enum(ProviderKind), nullable=False)
+    delivery_id: Mapped[str] = mapped_column(String(128), nullable=False)  # X-GitHub-Delivery
+    event: Mapped[str] = mapped_column(String(64), nullable=False)          # X-GitHub-Event
+    repository_id: Mapped[str | None] = mapped_column(
+        ForeignKey("repositories.id", ondelete="SET NULL"), index=True
+    )
+    head_sha: Mapped[str | None] = mapped_column(String(64))      # payload "after"
+    before_sha: Mapped[str | None] = mapped_column(String(64))    # payload "before"
+    ref: Mapped[str | None] = mapped_column(String(255))          # payload "ref"
+    changed_paths: Mapped[dict | None] = mapped_column(JSON)          # list[str]
+    changed_component_ids: Mapped[dict | None] = mapped_column(JSON)  # list[str], best-effort
+    run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="SET NULL"), index=True
+    )
+    # received | queued | coalesced | ignored_event | ignored_no_repo | ignored_no_change
+    status: Mapped[str] = mapped_column(String(32), default="received", nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
 
 
 class Component(Base, TimestampMixin):

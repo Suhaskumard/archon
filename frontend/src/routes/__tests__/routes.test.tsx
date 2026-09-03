@@ -50,6 +50,13 @@ describe("RunRoute", () => {
     expect(await screen.findByText("COMPLETED")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: /legacy dna/i })).toBeInTheDocument();
     expect(screen.getByText(/evidence record\(s\)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/triggered by push/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the push badge for a webhook-triggered run", async () => {
+    mockApi.getRun = vi.fn().mockResolvedValue(fx.runTriggeredByPush());
+    render(<App path="/runs/run-1" />);
+    expect(await screen.findByText(/triggered by push abcdef1/i)).toBeInTheDocument();
   });
 
   it("stops polling once the run is terminal", async () => {

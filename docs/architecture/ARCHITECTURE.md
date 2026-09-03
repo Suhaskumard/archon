@@ -1072,3 +1072,74 @@ deterministic role-grouped radial layout (testable by asserting positions).
 `panels/module-graph.tsx` adds `viewBox` wheel-zoom (0.3x-3x), pointer drag-pan, a reset
 control, a role-swatch legend, and per-node `<title>` tooltips. `components/ui.tsx` gains a
 reusable `Sparkline` (used by Git Evolution).
+
+---
+
+## 27. Real AI provider & push-triggered incremental analysis (Phase 19, §13-14, §51)
+
+**`ClaudeAIProvider`** (`providers/ai/claude.py`) is the real driver behind the *unchanged*
+`AIProvider` ABC. It implements only `_generate`; `base.complete_structured` still does the
+pydantic validation and `_validate_evidence` hallucination control (drop any `EvidenceRef`
+not in `context["known_refs"][kind]`, floor HIGH/MEDIUM confidence on a drop). Structured
+output is forced with a single Anthropic **tool** whose `input_schema` is
+`schema.model_json_schema()` (titles stripped, `additionalProperties:false`) and
+`tool_choice` pinned to it - Claude must call it, so the raw dict is already schema-shaped.
+Per-operation prompt renderers pull exactly the fields the mock `_op_*` consumes (the mock
+is the spec for each `context` dict); `_SYSTEM_BASE` + a per-op rule paragraph mirror the
+mock docstrings. `_clip_context` keeps the prompt under `ai_max_context_chars` by halving
+the largest list field. `_with_retries` maps SDK errors: timeout / connection / rate-limit
+/ 5xx / 408 / 429 → transient retry (`min(2**n,8)+jitter`) then `AIProviderError`
+(`TRANSIENT`, so the worker retries and the degrade-and-continue call sites catch it); 400 /
+422 → `AIOutputError`; 401 / 403 / 404 → `AIProviderError` (config).
+
+`anthropic` is an **optional** extra (`archon[claude]`, like `postgres`); `claude.py`
+imports it lazily and raises a clear `ArchonError` if absent. `ARCHON_AI_PROVIDER` selects
+the provider (`mock` default); `ai_model` / `ai_timeout_seconds` / `ai_max_retries` /
+`ai_max_output_tokens` / `anthropic_api_key` (`ANTHROPIC_API_KEY`, un-prefixed) tune it.
+Every non-mock call is recorded in a `base._AI_CALL_LOG` ring (`AICallRecord`) that the
+orchestrator drains into `Evidence(produced_by="claude:<model>")` after each AI-bearing
+stage - the provider never touches the DB, and the mock records nothing so existing
+Evidence counts are unchanged.
+
+**`RunMode.INCREMENTAL`** - a push-triggered, sandbox-free plan
+(`_INCREMENTAL_STAGES`, 9 stages): ingest → snapshot → source → git → graph → architecture
+→ **change-safety → change-impact** (STAGE_ORDER order; the roadmap's "impact → safety"
+prose is dependency intuition, not executable order) → test-discovery. Archaeology and the
+pure scoring engines are skipped - `run_change_safety` reads their `LegacyDNA`/`Hotspot`
+rows via `.get()` and the assumption count via `Counter`, so it degrades to "not at risk" /
+0 rather than failing (a documented accuracy trade-off for a fast push check). Every stage
+already has a dispatch branch, and the tuple is a strict increasing subsequence of
+`_ANALYSIS_ONLY_STAGES`, so `enter_stage` accepts it with no orchestrator changes.
+`terminal_stage("INCREMENTAL")` → `ANALYZING_TESTS`.
+
+`AnalysisRun.mode` moved from `_enum(RunMode)` (VARCHAR + CHECK) to `EnumString(RunMode)`
+(plain VARCHAR, validated in Python) so future modes never need a CHECK migration - the
+`Dependency.kind` decision. Migration `0013` rebuilds `analysis_runs` from the model schema
+(`batch_alter_table(copy_from=…, recreate="always")`, dropping the stale 3-value CHECK and
+adding `trigger` + `changed_paths`; the four column indexes are dropped/recreated
+explicitly).
+
+**Targeted scoping.** A push = new commit = new snapshot, so nothing clones from a prior
+run. `analysis/incremental/scope.py::resolve_changed_components` maps the webhook's changed
+paths → component ids in the new snapshot; the orchestrator resolves it after
+`ANALYZING_SOURCE` and passes an optional `scope_component_ids` into `run_change_impact`
+(compute impact only for the owning modules of the changed components) and
+`identify_untested_components` (filter candidates to the changed set). Both default to
+`None` → FULL / ANALYSIS_ONLY unchanged. `run_change_safety` is intentionally unscoped
+(cheap, pure-DB, and its per-snapshot cache is cloned by later FULL runs). An
+`incremental.v1` Evidence row names the targeted modules.
+
+**`POST /webhooks/github`** (`api/routers/webhooks.py`, async - it reads raw bytes).
+HMAC-SHA256 `X-Hub-Signature-256` verified with `hmac.compare_digest` against
+`github_webhook_secret` - missing secret / header, malformed, or mismatch → **401**
+(`ErrorCode.UNAUTHORIZED`, new, → HTTP 401). Every delivery is recorded in
+`webhook_deliveries` (`provider`+`delivery_id` unique → a replay is **409**). Non-`push`
+events → 202 `ignored`. The repo is resolved via `provider_for`/`parse` against registered
+`Repository` rows and **never auto-created** (unknown → 202 `ignored_no_repo`); a branch
+delete or a push with no changed files → 202 `ignored_no_change`. Otherwise
+`create_run_with_job(mode=INCREMENTAL, requested_ref=after, config_hash=sha256("INCREMENTAL|<after>")[:32],
+idempotency_key="gh:<delivery>", trigger={...}, changed_paths=[...])` → **202**
+`{status:"queued", run_id}` + `Location`. A same-commit push already in flight → 202
+`coalesced`. `AnalysisRun.trigger` (`{"source":"webhook","event":"push","sha","before",
+"delivery_id"}`) is surfaced through `RunOut` and rendered as a `triggered by push <sha7>`
+pill in the run view.

@@ -112,6 +112,7 @@ def run_out(run: AnalysisRun, *, include_children: bool = True) -> RunOut:
         created_at=run.created_at,
         started_at=run.started_at,
         ended_at=run.ended_at,
+        trigger=run.trigger,
         snapshot=snapshot_out(run.snapshot) if include_children and run.snapshot else None,
         evidence=(
             [evidence_out(e) for e in sorted(run.evidence, key=lambda x: x.created_at)]

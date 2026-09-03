@@ -20,6 +20,7 @@ from archon.api.routers import (
     runs,
     scoring,
     source,
+    webhooks,
 )
 from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(comparison.router)
     app.include_router(modernization.router)
     app.include_router(reporting.router)
+    app.include_router(webhooks.router)
     return app
 
 

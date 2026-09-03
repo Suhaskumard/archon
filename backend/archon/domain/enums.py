@@ -224,6 +224,7 @@ class RunMode(str, enum.Enum):
     FULL = "FULL"  # the whole closed loop through MODERNIZING - needs the Docker sandbox
     ANALYSIS_ONLY = "ANALYSIS_ONLY"  # deterministic analysis + scoring + test discovery; no execution / healing / modernization (sandbox-free)
     INGEST_ONLY = "INGEST_ONLY"  # clone + snapshot only
+    INCREMENTAL = "INCREMENTAL"  # push-triggered targeted re-analysis of the changed files; sandbox-free
 
 
 class Stage(str, enum.Enum):

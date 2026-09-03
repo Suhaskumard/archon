@@ -41,6 +41,14 @@ export function RunRoute() {
               stage: {run.current_stage ?? "—"} · last completed:{" "}
               {run.last_completed_stage ?? "—"} · mode {run.mode}
             </span>
+            {run.trigger?.source === "webhook" && run.trigger.sha && (
+              <span
+                className="pill trigger"
+                title={`push delivery ${run.trigger.delivery_id ?? ""}`}
+              >
+                triggered by push {run.trigger.sha.slice(0, 7)}
+              </span>
+            )}
             {run.state === "COMPLETED" && run.snapshot_id && (
               <button
                 className="primary"

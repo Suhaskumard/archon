@@ -51,6 +51,13 @@ export interface Run {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  trigger: {
+    source: string;
+    event?: string;
+    sha?: string;
+    before?: string;
+    delivery_id?: string;
+  } | null;
   snapshot: Snapshot | null;
   evidence: Evidence[];
 }

@@ -7,13 +7,13 @@ evidence-backed understanding of the code, scores its risk, generates tests, run
 a sandbox, investigates failures, proposes and verifies minimal patches, remembers
 incidents, and recommends a safe modernization order.
 
-* Full plan: `docs/ARCHON_IMPLEMENTATION_PLAN.pdf` · continuation: [`docs/ROADMAP.md`](docs/ROADMAP.md) (Phases 13–18: hardening & completion)
+* Full plan: `docs/ARCHON_IMPLEMENTATION_PLAN.pdf` · continuation: [`docs/ROADMAP.md`](docs/ROADMAP.md) (Phases 13–20: hardening & completion)
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
 * Status: **All 12 spec phases complete** — the closed loop (ingest → analyse → score →
   characterize → execute → investigate → patch → verify → record incident →
-  modernize) runs end to end. Phases 13–18 (reporting, test/CI hardening, de-duplication,
-  scoring calibration, frontend modernization, real Claude driver + webhook) are in
-  progress — see [`docs/ROADMAP.md`](docs/ROADMAP.md). —
+  modernize) runs end to end. Phases 13–19 (reporting, test/CI hardening, de-duplication,
+  scoring calibration, frontend modernization, real Claude driver + push webhook) are done;
+  Phase 20 (observability & scale) remains — see [`docs/ROADMAP.md`](docs/ROADMAP.md). —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
   [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
   [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph) ·
@@ -31,7 +31,8 @@ incidents, and recommends a safe modernization order.
   [Phase 15](docs/PHASE_15_COMPLETION.md) (core de-duplication — scoring `_base`, `enum_value`, redaction breadth) ·
   [Phase 16](docs/PHASE_16_COMPLETION.md) (scoring calibration — measured coverage → `legacy_risk.v2`, `understanding.v2`, calibration test) ·
   [Phase 17](docs/PHASE_17_COMPLETION.md) (frontend architecture — `lib`/`components`/`panels`/`routes`, HashRouter, design tokens) ·
-  [Phase 18](docs/PHASE_18_COMPLETION.md) (frontend tests — Vitest + a11y/axe + coverage gate, panel states, zoom/pan module graph)
+  [Phase 18](docs/PHASE_18_COMPLETION.md) (frontend tests — Vitest + a11y/axe + coverage gate, panel states, zoom/pan module graph) ·
+  [Phase 19](docs/PHASE_19_COMPLETION.md) (real `ClaudeAIProvider` + GitHub push webhook → `RunMode.INCREMENTAL`)
 
 ## Quick start (local, SQLite)
 
@@ -53,6 +54,18 @@ Run the service + worker:
 ../.venv/Scripts/python -m archon.cli.main serve    # http://127.0.0.1:8000  (/docs for OpenAPI)
 ../.venv/Scripts/python -m archon.cli.main worker   # in another terminal
 ```
+
+Optional — the real Claude AI provider and the GitHub push webhook:
+
+```bash
+.venv/Scripts/python -m pip install -e "backend[claude]"   # adds the anthropic SDK
+export ANTHROPIC_API_KEY=sk-ant-...        # or set in .env
+export ARCHON_AI_PROVIDER=claude           # default is "mock" (offline, deterministic)
+export ARCHON_GITHUB_WEBHOOK_SECRET=...    # then POST push events to /webhooks/github
+```
+
+A signed `push` webhook enqueues a sandbox-free `RunMode.INCREMENTAL` run scoped to the
+changed files; the run view shows a "triggered by push `<sha>`" badge.
 
 Frontend:
 

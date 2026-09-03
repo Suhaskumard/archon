@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,17 @@ def sandbox_image_available() -> bool:
     if proc.returncode != 0:
         pytest.skip("archon-sandbox:latest image not built - run `make sandbox-image`")
     return True
+
+
+@pytest.fixture(scope="session")
+def anthropic_api_key_available() -> str:
+    """Skip live Claude-provider tests unless a real key AND the SDK are present -
+    mirrors ``sandbox_image_available`` for the Docker tests."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        pytest.skip("ANTHROPIC_API_KEY not set - live Claude provider test skipped")
+    pytest.importorskip("anthropic", reason="run: pip install -e 'backend[claude]'")
+    return key
 
 
 @pytest.fixture

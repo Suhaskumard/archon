@@ -70,6 +70,9 @@ class RunOut(BaseModel):
     created_at: datetime
     started_at: datetime | None
     ended_at: datetime | None
+    # Phase 19: {"source": "webhook", "event": "push", "sha", "before", "delivery_id"} for a
+    # push-triggered run; None for API / CLI / bulk runs.
+    trigger: dict | None = None
     snapshot: SnapshotOut | None = None
     evidence: list[EvidenceOut] = []
 

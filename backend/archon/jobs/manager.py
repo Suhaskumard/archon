@@ -40,6 +40,8 @@ class JobManager:
         config_hash: str | None = None,
         idempotency_key: str | None = None,
         priority: int = 100,
+        trigger: dict | None = None,
+        changed_paths: list[str] | None = None,
     ) -> Job:
         """Create an ``AnalysisRun`` (PENDING->QUEUED) plus its ``Job`` (QUEUED).
 
@@ -79,6 +81,8 @@ class JobManager:
             state=RunState.PENDING,
             engine_versions=current_versions(),
             config_hash=config_hash,
+            trigger=trigger,
+            changed_paths=changed_paths,
         )
         session.add(run)
         RunStateMachine(run.state).transition(RunState.QUEUED)

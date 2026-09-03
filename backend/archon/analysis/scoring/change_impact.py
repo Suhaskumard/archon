@@ -224,7 +224,8 @@ def compute_and_persist_change_impact(
 
 
 def run_change_impact(
-    session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+    session: Session, run: AnalysisRun, snapshot: RepositorySnapshot,
+    *, scope_component_ids: list[str] | None = None,
 ) -> ChangeImpactSummary:
     comps = session.scalars(
         select(Component).where(Component.snapshot_id == snapshot.id)
@@ -237,8 +238,21 @@ def run_change_impact(
             module_by_path[c.path] = c
     mg = build_module_graph(session, snapshot.id)
 
+    # INCREMENTAL (Phase 19): only compute impact for the modules owning the changed
+    # components; a full run does every module.
+    if scope_component_ids is not None:
+        scoped = set(scope_component_ids)
+        targets = {
+            m.id: m
+            for c in comps if c.id in scoped
+            for m in (_module_for(module_by_path, c),) if m is not None
+        }
+        modules = list(targets.values())
+    else:
+        modules = list(module_by_path.values())
+
     computed = 0
-    for module in module_by_path.values():
+    for module in modules:
         fields = _compute(session, snapshot, module, mg, comps_by_path, module_by_path)
         row = session.scalar(
             select(ChangeImpact).where(

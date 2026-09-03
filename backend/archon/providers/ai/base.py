@@ -10,6 +10,7 @@ unresolvable refs are dropped and confidence is floored (hallucination control).
 from __future__ import annotations
 
 import abc
+from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -22,6 +23,33 @@ from archon.domain.enums import Confidence
 log = get_logger("archon.ai")
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(slots=True)
+class AICallRecord:
+    """One completed AI call, drained by the orchestrator into an ``Evidence`` row.
+
+    Only non-mock providers append here (the mock is a pure function with no cost /
+    provenance to record), so the existing test suite's Evidence counts are unchanged.
+    """
+
+    operation: str
+    provider: str
+    model: str
+    input_tokens: int | None
+    output_tokens: int | None
+    latency_ms: int
+    confidence: str | None
+
+
+_AI_CALL_LOG: list[AICallRecord] = []
+
+
+def drain_ai_calls() -> list[AICallRecord]:
+    """Return every recorded AI call since the last drain and clear the buffer."""
+    out = list(_AI_CALL_LOG)
+    _AI_CALL_LOG.clear()
+    return out
 
 
 class AIProviderError(ArchonError):
@@ -64,11 +92,24 @@ class AIProvider(abc.ABC):
 
         if isinstance(result, AIEnvelope):
             result = self._validate_evidence(operation, result, context)
+        confidence = getattr(result, "confidence", None)
+        if self.name != "mock":
+            _AI_CALL_LOG.append(
+                AICallRecord(
+                    operation=operation,
+                    provider=self.name,
+                    model=getattr(self, "_model", self.name),
+                    input_tokens=getattr(self, "_last_usage", (None, None))[0],
+                    output_tokens=getattr(self, "_last_usage", (None, None))[1],
+                    latency_ms=int(getattr(self, "_last_latency_ms", 0)),
+                    confidence=getattr(confidence, "value", None),
+                )
+            )
         log.info(
             "ai op",
             extra={"extra_fields": {
                 "provider": self.name, "operation": operation,
-                "confidence": getattr(result, "confidence", None),
+                "confidence": confidence,
             }},
         )
         return result

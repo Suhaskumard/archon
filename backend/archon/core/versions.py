@@ -62,6 +62,8 @@ ENGINE_VERSIONS: dict[str, str] = {
     # Phase 12 - modernization
     "modernization": "modernization.v1",
     "ai_modernization_recommendation": "modernization_recommendation.v1",
+    # Phase 19 - push-triggered incremental analysis
+    "incremental": "incremental.v1",
 }
 
 

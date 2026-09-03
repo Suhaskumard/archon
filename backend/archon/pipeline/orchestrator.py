@@ -43,6 +43,7 @@ from archon.analysis.archaeology.reconstruct import run_archaeology
 from archon.analysis.architecture.reconstruct import reconstruct_architecture
 from archon.analysis.git.persist import analyze_git
 from archon.analysis.graph.derive import derive_edges
+from archon.analysis.incremental.scope import resolve_changed_components
 from archon.analysis.scoring.change_impact import run_change_impact
 from archon.analysis.scoring.change_safety_run import run_change_safety
 from archon.analysis.scoring.coverage_refine import (
@@ -77,6 +78,7 @@ from archon.jobs.manager import JobManager
 from archon.jobs.state_machine import RunStateMachine
 from archon.modernization.planner import generate_modernization_plan
 from archon.pipeline.support import assess_support
+from archon.providers.ai import drain_ai_calls
 from archon.providers.repo import provider_for
 from archon.testing.characterization import run_characterization
 from archon.testing.discovery import discover_existing_tests
@@ -117,10 +119,27 @@ _ANALYSIS_STAGES = (
 # ANALYSIS_ONLY stops before CHARACTERIZING - every stage through ANALYZING_TESTS is
 # pure DB/AST/git work; CHARACTERIZING is the first stage that needs the Docker sandbox.
 _ANALYSIS_ONLY_STAGES = _ANALYSIS_STAGES[: _ANALYSIS_STAGES.index(Stage.CHARACTERIZING)]
+# INCREMENTAL (Phase 19): push-triggered, sandbox-free, and makes zero AI calls. Keeps the
+# deterministic structure stages plus change-safety / change-impact / test discovery -
+# the "is this change safe / what does it hit" output - scoped to the changed components.
+# Archaeology + the pure scoring engines are skipped: change-safety reads their rows via
+# ``.get()`` and degrades cleanly (see change_safety_run.py::_is_at_risk).
+_INCREMENTAL_STAGES = (
+    Stage.INGESTING,
+    Stage.SNAPSHOTTING,
+    Stage.ANALYZING_SOURCE,
+    Stage.ANALYZING_GIT,
+    Stage.BUILDING_GRAPH,
+    Stage.RECONSTRUCTING_ARCHITECTURE,
+    Stage.ASSESSING_CHANGE_SAFETY,
+    Stage.ANALYZING_CHANGE_IMPACT,
+    Stage.ANALYZING_TESTS,
+)
 _STAGE_PLANS: dict[RunMode, tuple[Stage, ...]] = {
     RunMode.INGEST_ONLY: (Stage.INGESTING, Stage.SNAPSHOTTING),
     RunMode.ANALYSIS_ONLY: _ANALYSIS_ONLY_STAGES,
     RunMode.FULL: _ANALYSIS_STAGES,
+    RunMode.INCREMENTAL: _INCREMENTAL_STAGES,
 }
 
 
@@ -180,9 +199,11 @@ class PipelineOrchestrator:
 
         plan = _STAGE_PLANS.get(run.mode, _STAGE_PLANS[RunMode.INGEST_ONLY])
         sm = RunStateMachine(run.state, run.current_stage)
+        drain_ai_calls()  # discard any stragglers from a previous run in this process
         completed: list[str] = []
         clone_result = None
         snapshot: RepositorySnapshot | None = None
+        scope_ids: list[str] | None = None  # INCREMENTAL: changed component ids
         source_summary: dict | None = None
         architecture_summary: dict | None = None
         git_summary: dict | None = None
@@ -219,6 +240,10 @@ class PipelineOrchestrator:
             elif stage is Stage.ANALYZING_SOURCE:
                 assert clone_result is not None and snapshot is not None
                 source_summary = self._source(session, run, snapshot, clone_result.workspace)
+                if run.mode is RunMode.INCREMENTAL and run.changed_paths:
+                    scope_ids = resolve_changed_components(
+                        session, snapshot, list(run.changed_paths)
+                    )
             elif stage is Stage.ANALYZING_GIT:
                 assert clone_result is not None and snapshot is not None
                 git_summary = self._git(session, run, snapshot, clone_result.workspace)
@@ -233,6 +258,7 @@ class PipelineOrchestrator:
                 archaeology_summary = self._archaeology(
                     session, run, snapshot, clone_result.workspace
                 )
+                self._flush_ai_evidence(session, run, stage)
             elif stage is Stage.SCORING_UNDERSTANDING:
                 assert snapshot is not None
                 understanding_summary = self._understanding(session, run, snapshot)
@@ -250,10 +276,16 @@ class PipelineOrchestrator:
                 change_safety_summary = self._change_safety(session, run, snapshot)
             elif stage is Stage.ANALYZING_CHANGE_IMPACT:
                 assert snapshot is not None
-                change_impact_summary = self._change_impact(session, run, snapshot)
+                change_impact_summary = self._change_impact(
+                    session, run, snapshot, scope_component_ids=scope_ids
+                )
             elif stage is Stage.ANALYZING_TESTS:
                 assert snapshot is not None
-                test_discovery_summary = self._analyzing_tests(session, run, snapshot)
+                test_discovery_summary = self._analyzing_tests(
+                    session, run, snapshot, scope_component_ids=scope_ids
+                )
+                if run.mode is RunMode.INCREMENTAL:
+                    self._record_incremental_scope(session, run, snapshot, scope_ids)
             elif stage is Stage.CHARACTERIZING:
                 assert clone_result is not None and snapshot is not None
                 characterization_summary = self._characterizing(
@@ -264,6 +296,7 @@ class PipelineOrchestrator:
                 test_generation_summary = self._generating_tests(
                     session, run, snapshot, clone_result.workspace
                 )
+                self._flush_ai_evidence(session, run, stage)
             elif stage is Stage.EXECUTING:
                 assert clone_result is not None and snapshot is not None
                 execution_summary = self._executing(session, run, snapshot, clone_result.workspace)
@@ -275,9 +308,11 @@ class PipelineOrchestrator:
             elif stage is Stage.INVESTIGATING:
                 assert snapshot is not None
                 investigation_summary = self._investigating(session, run, snapshot)
+                self._flush_ai_evidence(session, run, stage)
             elif stage is Stage.GENERATING_PATCH:
                 assert clone_result is not None and snapshot is not None
                 patch_summary = self._generating_patch(session, run, snapshot, clone_result.workspace)
+                self._flush_ai_evidence(session, run, stage)
             elif stage is Stage.RANKING_PATCHES:
                 self._ranking_patches(session, run)
             elif stage is Stage.VERIFYING_PATCH:
@@ -290,6 +325,7 @@ class PipelineOrchestrator:
             elif stage is Stage.MODERNIZING:
                 assert snapshot is not None
                 modernization_summary = self._modernizing(session, run, snapshot)
+                self._flush_ai_evidence(session, run, stage)
             else:  # pragma: no cover - _STAGE_PLANS is a closed set
                 raise ArchonError(
                     ErrorCode.INTERNAL,
@@ -542,9 +578,12 @@ class PipelineOrchestrator:
         return summary.as_dict()
 
     def _change_impact(
-        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot,
+        *, scope_component_ids: list[str] | None = None,
     ) -> dict:
-        summary = run_change_impact(session, run, snapshot)
+        summary = run_change_impact(
+            session, run, snapshot, scope_component_ids=scope_component_ids
+        )
         log.info(
             "change impact stage complete",
             extra={"extra_fields": {"run_id": run.id, **summary.as_dict()}},
@@ -552,11 +591,14 @@ class PipelineOrchestrator:
         return summary.as_dict()
 
     def _analyzing_tests(
-        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot,
+        *, scope_component_ids: list[str] | None = None,
     ) -> dict:
         summary = discover_existing_tests(session, run, snapshot)
         result = summary.as_dict()
-        candidates = identify_untested_components(session, run, snapshot)
+        candidates = identify_untested_components(
+            session, run, snapshot, scope_component_ids=scope_component_ids
+        )
         result["untested_candidates"] = len(candidates)
         log.info(
             "test discovery stage complete",
@@ -691,6 +733,45 @@ class PipelineOrchestrator:
         return summary.as_dict()
 
     # --- helpers ----------------------------------------------------------
+
+    def _flush_ai_evidence(self, session: Session, run: AnalysisRun, stage: Stage) -> None:
+        """Drain non-mock AI calls made during ``stage`` into ``produced_by=claude:<model>``
+        Evidence rows. No-op for the mock provider (it records nothing). ``_clear_stage``
+        already wiped this stage's Evidence on entry, so re-runs stay idempotent."""
+        for rec in drain_ai_calls():
+            self._add_evidence(
+                session, run, stage, Classification.FACT,
+                f"AI {rec.operation} via {rec.model}",
+                detail=(
+                    f"provider={rec.provider} in_tokens={rec.input_tokens} "
+                    f"out_tokens={rec.output_tokens} latency_ms={rec.latency_ms} "
+                    f"confidence={rec.confidence}"
+                ),
+                produced_by=f"{rec.provider}:{rec.model}"[:128],
+            )
+
+    def _record_incremental_scope(
+        self, session: Session, run: AnalysisRun, snapshot: RepositorySnapshot,
+        scope_ids: list[str] | None,
+    ) -> None:
+        ids = scope_ids or []
+        qns: list[str] = []
+        if ids:
+            from archon.db.models import Component
+
+            qns = sorted(
+                c.qualified_name
+                for c in session.scalars(
+                    select(Component).where(Component.id.in_(ids))
+                ).all()
+            )
+        self._add_evidence(
+            session, run, Stage.ANALYZING_TESTS, Classification.INFERENCE,
+            f"Incremental analysis targeted {len(ids)} changed component(s)",
+            detail=(", ".join(qns) or "no changed component resolved in this snapshot")[:512],
+            produced_by="incremental.v1", confidence=1.0,
+            refs={"changed_component_ids": ids[:200], "changed_paths": list(run.changed_paths or [])[:200]},
+        )
 
     def _check_cancel(self, session: Session, job) -> None:
         if job is not None and self.jobs.is_cancel_requested(session, job):

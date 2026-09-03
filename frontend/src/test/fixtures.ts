@@ -87,9 +87,23 @@ export const run = mk<Run>({
   created_at: "2026-01-01T00:00:00Z",
   started_at: "2026-01-01T00:00:01Z",
   ended_at: "2026-01-01T00:02:00Z",
+  trigger: null,
   snapshot: snapshot(),
   evidence: [evidence()],
 });
+
+export const runTriggeredByPush = (over: Partial<Run> = {}): Run =>
+  run({
+    mode: "INCREMENTAL",
+    trigger: {
+      source: "webhook",
+      event: "push",
+      sha: "abcdef1234567890abcdef1234567890abcdef12",
+      before: "0000000000000000000000000000000000000000",
+      delivery_id: "d-1",
+    },
+    ...over,
+  });
 
 export const component = mk<Component>({
   id: "cmp-1",

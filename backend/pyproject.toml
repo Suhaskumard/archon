@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov", "anyio>=4", "ruff>=0.6", "hypothesis>=6"]
 postgres = ["psycopg[binary]>=3.1"]
+claude = ["anthropic>=0.40,<1"]
 
 [project.scripts]
 archon = "archon.cli.main:app"

@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     # --- Providers ---
     github_api_url: str = "https://api.github.com"
     github_token: str | None = None  # read from env only; never logged, never sent to sandbox
+    github_webhook_secret: str | None = None  # ARCHON_GITHUB_WEBHOOK_SECRET; HMAC key, env only, never logged
     http_timeout_seconds: float = 20.0
     http_max_retries: int = 3
 
@@ -79,9 +80,14 @@ class Settings(BaseSettings):
     max_concurrent_runs: int = 4
 
     # --- AI (spec sections 13-14, 18) ---
-    ai_provider: str = "mock"          # "mock" | "claude" (claude is a stub until wired)
+    ai_provider: str = "mock"          # "mock" | "claude" (mock is the default; claude needs archon[claude] + a key)
+    ai_model: str = "claude-sonnet-5"  # used only when ai_provider == "claude"
+    ai_timeout_seconds: float = 60.0
+    ai_max_retries: int = 2
+    ai_max_output_tokens: int = 4096
     ai_max_context_chars: int = 12_000
     ai_max_components_per_run: int = 40  # archaeology: top-K by churn * complexity
+    anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
 
     limits: RepositoryLimits = Field(default_factory=RepositoryLimits)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)

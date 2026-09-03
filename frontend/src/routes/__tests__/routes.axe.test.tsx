@@ -42,3 +42,10 @@ describe.each([
     expect(results).toHaveNoViolations();
   });
 });
+
+it("run view with a push-trigger badge has no axe violations", async () => {
+  mockApi.getRun = vi.fn().mockResolvedValue(fx.runTriggeredByPush());
+  const { container } = renderAt("/runs/run-1");
+  await screen.findByText(/triggered by push/i);
+  expect(await axe(container)).toHaveNoViolations();
+});

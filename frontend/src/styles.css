@@ -50,6 +50,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .pill.SUPPORTED, .pill.COMPLETED, .pill.FACT { color: var(--tone-good); border-color: var(--tone-good-border); }
 .pill.PARTIALLY_SUPPORTED, .pill.RUNNING, .pill.QUEUED, .pill.INFERENCE { color: var(--tone-warn); border-color: var(--tone-warn-border); }
 .pill.UNSUPPORTED, .pill.FAILED, .pill.HYPOTHESIS { color: var(--tone-bad); border-color: var(--tone-bad-border); }
+.pill.trigger { color: var(--tone-info); border-color: var(--tone-info-border); }
 
 .bar {
   height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
