@@ -79,6 +79,16 @@ class Settings(BaseSettings):
     job_heartbeat_timeout_seconds: int = 120
     max_concurrent_runs: int = 4
 
+    # --- Operability / abuse controls (spec sections 16, 18, 55) ---
+    db_pool_size: int = 5             # non-sqlite only
+    db_max_overflow: int = 10
+    db_pool_pre_ping: bool = True
+    max_request_bytes: int = 2 * 1024 * 1024
+    rate_limit_runs_per_minute: int = 30      # POST /repositories/{id}/runs, per client IP
+    rate_limit_webhook_per_minute: int = 120  # POST /webhooks/github, per client IP
+    rate_limit_enabled: bool = True
+    metrics_enabled: bool = True
+
     # --- AI (spec sections 13-14, 18) ---
     ai_provider: str = "mock"          # "mock" | "claude" (mock is the default; claude needs archon[claude] + a key)
     ai_model: str = "claude-sonnet-5"  # used only when ai_provider == "claude"

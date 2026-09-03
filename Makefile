@@ -2,7 +2,7 @@
 PY ?= .venv/Scripts/python.exe
 BACKEND := backend
 
-.PHONY: help venv install migrate test lint run-api run-worker analyze e2e clean sandbox-image ci cov frontend-check
+.PHONY: help venv install migrate test lint run-api run-worker analyze e2e perf clean sandbox-image ci cov frontend-check
 
 help:
 	@echo "venv          - create .venv"
@@ -14,6 +14,7 @@ help:
 	@echo "run-worker    - start the analysis worker"
 	@echo "analyze R=    - headless: ingest repo/path R end-to-end"
 	@echo "e2e           - run the acceptance suite only"
+	@echo "perf          - run the perf/concurrency/caching tier (pytest -m perf)"
 	@echo "cov           - run the backend suite with a coverage report"
 	@echo "ci            - lint + backend tests + frontend typecheck/build (the CI gate)"
 	@echo "sandbox-image - build the archon-sandbox Docker image (required before Phase 7 sandbox tests run)"
@@ -33,6 +34,9 @@ test:
 
 e2e:
 	cd $(BACKEND) && ../$(PY) -m pytest tests/acceptance -q
+
+perf:
+	cd $(BACKEND) && ../$(PY) -m pytest -m perf -q
 
 lint:
 	cd $(BACKEND) && ../$(PY) -m ruff check archon tests alembic

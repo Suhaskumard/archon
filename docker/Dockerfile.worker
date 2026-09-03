@@ -18,7 +18,18 @@ WORKDIR /app
 COPY backend/ /app/backend/
 RUN pip install --no-cache-dir -e "/app/backend[postgres]"
 
+# The worker shells out to `docker` against the mounted host socket; add it to the
+# docker group so it can, but otherwise run unprivileged.
+RUN useradd --create-home --uid 10001 archon \
+    && groupadd -f docker && usermod -aG docker archon
+
 ENV ARCHON_DATA_ROOT=/data
+RUN mkdir -p /data && chown -R archon:archon /data /app
+USER archon
 VOLUME ["/data"]
+
+# Liveness: the process can import its stack and reach the database.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD python -c "from archon.db.migrate import is_up_to_date; import sys; sys.exit(0 if is_up_to_date() else 1)" || exit 1
 
 CMD ["python", "-m", "archon.cli.main", "worker"]

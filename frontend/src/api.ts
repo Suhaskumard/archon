@@ -62,6 +62,28 @@ export interface Run {
   evidence: Evidence[];
 }
 
+export interface AdminRun {
+  run_id: string;
+  repository: string | null;
+  snapshot_id: string | null;
+  commit_sha: string | null;
+  mode: string;
+  state: string;
+  current_stage: string | null;
+  last_completed_stage: string | null;
+  trigger: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  progress_pct: number;
+  error: { code: string; message: string } | null;
+  ai_evidence_count: number;
+}
+export interface AdminRuns {
+  total: number;
+  runs: AdminRun[];
+}
+
 export interface Component {
   id: string;
   snapshot_id: string;
@@ -565,6 +587,8 @@ export const api = {
   getComparison: (comparisonId: string) => req<Comparison>(`/comparisons/${comparisonId}`),
   getModernization: (runId: string) =>
     req<ModernizationRecommendation[]>(`/runs/${runId}/modernization`),
+  getAdminRuns: (state?: string) =>
+    req<AdminRuns>(`/admin/runs${state ? `?state=${state}` : ""}`),
   downloadReport: async (runId: string): Promise<void> => {
     const res = await fetch(`/runs/${runId}/report.xlsx`);
     if (!res.ok) {

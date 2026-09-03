@@ -11,9 +11,9 @@ incidents, and recommends a safe modernization order.
 * Architecture (living): [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
 * Status: **All 12 spec phases complete** — the closed loop (ingest → analyse → score →
   characterize → execute → investigate → patch → verify → record incident →
-  modernize) runs end to end. Phases 13–19 (reporting, test/CI hardening, de-duplication,
-  scoring calibration, frontend modernization, real Claude driver + push webhook) are done;
-  Phase 20 (observability & scale) remains — see [`docs/ROADMAP.md`](docs/ROADMAP.md). —
+  modernize) runs end to end. Phases 13–20 (reporting, test/CI hardening, de-duplication,
+  scoring calibration, frontend modernization, real Claude driver + push webhook,
+  observability & operability) are complete — see [`docs/ROADMAP.md`](docs/ROADMAP.md). —
   [Phase 1](docs/PHASE_1_COMPLETION.md) (ingestion) ·
   [Phase 2](docs/PHASE_2_COMPLETION.md) (source intelligence) ·
   [Phase 3](docs/PHASE_3_COMPLETION.md) (architecture & dependency graph) ·
@@ -32,7 +32,8 @@ incidents, and recommends a safe modernization order.
   [Phase 16](docs/PHASE_16_COMPLETION.md) (scoring calibration — measured coverage → `legacy_risk.v2`, `understanding.v2`, calibration test) ·
   [Phase 17](docs/PHASE_17_COMPLETION.md) (frontend architecture — `lib`/`components`/`panels`/`routes`, HashRouter, design tokens) ·
   [Phase 18](docs/PHASE_18_COMPLETION.md) (frontend tests — Vitest + a11y/axe + coverage gate, panel states, zoom/pan module graph) ·
-  [Phase 19](docs/PHASE_19_COMPLETION.md) (real `ClaudeAIProvider` + GitHub push webhook → `RunMode.INCREMENTAL`)
+  [Phase 19](docs/PHASE_19_COMPLETION.md) (real `ClaudeAIProvider` + GitHub push webhook → `RunMode.INCREMENTAL`) ·
+  [Phase 20](docs/PHASE_20_COMPLETION.md) (observability & operability — Prometheus `/metrics`, `/admin/runs` ops view, hardened prod compose, multi-language contract, rate limits, `perf` tier)
 
 ## Quick start (local, SQLite)
 
@@ -79,14 +80,20 @@ npm run typecheck && npm run test:cov && npm run build   # the CI gate's fronten
 Full stack in containers:
 
 ```bash
-docker compose -f docker/docker-compose.yml up --build
+docker compose -f docker/docker-compose.yml up --build                       # local dev stack
+cp .env.prod.example .env.prod  # set POSTGRES_PASSWORD etc.
+docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d  # hardened: non-root, healthchecks, limits
 ```
+
+Observability: `GET /metrics` (Prometheus), `GET /readyz` (DB + migrations), `GET /admin/runs`
+(ops view), and the `#/ops` screen in the SPA.
 
 ## Tests
 
 ```bash
-cd backend && ../.venv/Scripts/python -m pytest        # runs with no Docker: analysis suite passes, sandbox tests skip cleanly
+cd backend && ../.venv/Scripts/python -m pytest        # runs with no Docker: analysis suite passes, sandbox/perf tests skip cleanly
 make sandbox-image                                     # build the Docker sandbox image once (Phase 7) to also run execution/healing/e2e tests
+make perf                                              # perf/concurrency/caching tier (pytest -m perf; deselected by default)
 ../.venv/Scripts/python -m ruff check archon tests alembic
 make ci                                                # lint + backend tests + frontend typecheck/build (the CI gate)
 ```

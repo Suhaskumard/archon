@@ -17,6 +17,7 @@ from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.ids import new_id
 from archon.core.logging import get_logger
+from archon.core.observability import audit
 from archon.core.versions import current_versions
 from archon.db.models import AnalysisRun, Job
 from archon.domain.enums import JobState, JobType, RunMode, RunState
@@ -99,6 +100,8 @@ class JobManager:
         )
         session.add(job)
         session.flush()
+        audit("run.queued", run_id=run.id, job_id=job.id, mode=mode.value,
+              trigger=(trigger or {}).get("source", "api"))
         log.info(
             "run+job created",
             extra={"extra_fields": {"run_id": run.id, "job_id": job.id, "mode": mode.value}},
@@ -224,11 +227,14 @@ class JobManager:
                 if run:
                     run.state = RunState.FAILED
                     run.error = job.error
+                audit("run.failed", run_id=job.run_id, job_id=job.id, code="TIMEOUT",
+                      message="worker heartbeat lost")
             else:
                 job.state = JobState.QUEUED
                 job.started_at = None
                 if run:
                     run.state = RunState.QUEUED
+                audit("run.requeued", run_id=job.run_id, job_id=job.id, attempt=job.attempts)
         if stale:
             session.flush()
             log.info("requeued stale jobs", extra={"extra_fields": {"count": len(stale)}})

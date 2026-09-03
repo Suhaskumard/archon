@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Header, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from archon.api.deps import get_session
+from archon.api.deps import get_session, rate_limit_runs
 from archon.api.schemas import RepositoryCreate, RepositoryOut, RunCreate, RunOut
 from archon.api.serialize import repository_out, run_out
 from archon.core.errors import ArchonError, ErrorCode
@@ -70,6 +70,7 @@ def get_repository(repository_id: str, session: Session = Depends(get_session)) 
     "/{repository_id}/runs",
     response_model=RunOut,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_runs)],
 )
 def create_run(
     repository_id: str,

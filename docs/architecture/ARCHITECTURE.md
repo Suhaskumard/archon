@@ -1143,3 +1143,60 @@ idempotency_key="gh:<delivery>", trigger={...}, changed_paths=[...])` → **202*
 `coalesced`. `AnalysisRun.trigger` (`{"source":"webhook","event":"push","sha","before",
 "delivery_id"}`) is surfaced through `RunOut` and rendered as a `triggered by push <sha7>`
 pill in the run view.
+
+---
+
+## 28. Observability, scale & operability (Phase 20, §16, §18, §53, §55)
+
+**Metrics + tracing** (`core/observability.py`). A dedicated `CollectorRegistry` (never the
+global default, so tests `reset_metrics()` freely) carries the series the ops screen and
+`GET /metrics` expose: `archon_stage_duration_seconds{stage,mode,outcome}` (Histogram, fed
+from the orchestrator's per-stage `time.monotonic()` delta), `archon_run_outcomes_total`,
+`archon_runs_active` / `archon_jobs_queued` / `archon_jobs_running` (Gauges refreshed from
+the DB on each `/metrics` scrape), `archon_ai_calls_total` / `archon_ai_call_latency_seconds`
+/ `archon_ai_tokens_total` (fed from `AIProvider.complete_structured` for non-mock providers
+— a cost proxy), `archon_sandbox_containers`, and `archon_http_requests_total{method,route,
+status}` (an app middleware). `span(name, **fields)` is a context manager that logs one
+structured `trace` record with `duration_ms` + `ok` — "traces via structured logging"; an
+OTel exporter can wrap it later without touching call sites. `audit(event, **fields)` writes
+an `archon.audit` record for every run/job state transition (`run.queued` / `run.claimed` /
+`run.completed` / `run.failed` / `run.requeued`, `stage.enter`, `worker.draining`) — the
+structured audit log §55 asks for, no new table.
+
+**Ops view.** `GET /admin/runs` (`api/routers/admin.py`) returns one row per run: repo URL,
+commit, mode, state, current/last stage, trigger, start/end, wall-clock duration, progress,
+error, and an AI-evidence count (Evidence rows whose `produced_by` starts `claude:`). The
+frontend `#/ops` route renders it as a filterable table and links to `/metrics` + `/readyz`.
+`GET /readyz` is readiness (DB reachable **and** `current_revision() == head_revision()` →
+503 otherwise); `/healthz` stays liveness.
+
+**Deployment** (`docker/docker-compose.prod.yml` + hardened Dockerfiles). Non-root `archon`
+(uid 10001) user, `HEALTHCHECK` per image (`/healthz` for the api, `is_up_to_date()` for the
+worker), resource limits, `restart: unless-stopped`, `stop_grace_period: 120s` so the worker
+finishes its in-flight job on SIGTERM. Secrets come from `--env-file .env.prod` (see
+`.env.prod.example`), never baked. `migrate.upgrade()` takes a Postgres **session advisory
+lock** (`pg_advisory_lock`, a no-op on SQLite) so every replica can run `db-upgrade` on
+start and only one migrates. `db/base.get_engine` adds `pool_pre_ping` always and a bounded
+`pool_size`/`max_overflow` for non-sqlite.
+
+**Multi-language / support contract** (§16-17). `assess_support` now returns a
+`language_breakdown` (ext → count via `_LANG_BY_EXT`). When a repo is `PARTIALLY_SUPPORTED`
+with non-Python code, the `SNAPSHOTTING` stage emits a `NON_PYTHON_SUMMARY` `FACT` Evidence
+row (file counts + languages, `refs.language_breakdown`) — the rest is *summarised*, never
+silently dropped — plus a shallow-history `INFERENCE` row when `commit_count <= 1`. The
+orchestrator also enforces `max_analysis_duration_seconds` as a whole-run wall-clock
+deadline checked before each stage → structured `TIMEOUT` error on breach.
+
+**Abuse controls.** `core/ratelimit.RateLimiter` is an in-process per-client fixed-window
+limiter (single-node; a shared limiter is the documented next step). `rate_limit_runs`
+(30/min) guards `POST /repositories/{id}/runs`; `rate_limit_webhook` (120/min) guards
+`POST /webhooks/github` — both keyed on `X-Forwarded-For` / `request.client.host`, → **429**
+`RATE_LIMITED`. An app middleware rejects a body over `max_request_bytes` (2 MiB) with
+**413** `REQUEST_TOO_LARGE` before it is read.
+
+**Perf tier** (`tests/perf/`, `pytest -m perf`, deselected by default). Cache-key
+correctness (a second run over the same commit shares the immutable snapshot and does not
+duplicate `Component`/`Dependency` rows; a new commit gets a fresh snapshot), the
+`max_concurrent_runs` claim cap, `max_file_count` truncation, the pre-clone size guard, and
+— gated on `ARCHON_TEST_POSTGRES_URL` / `ARCHON_RUN_REAPER_TEST` — a Postgres
+`SELECT … FOR UPDATE SKIP LOCKED` contention test and the container reaper.

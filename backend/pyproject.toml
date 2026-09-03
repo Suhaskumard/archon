@@ -15,6 +15,7 @@ dependencies = [
     "networkx>=3",
     "openpyxl>=3.1",
     "python-multipart>=0.0.9",
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +43,11 @@ exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "raise NotImp
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# perf/ is a heavier tier - opt in with `pytest -m perf` (or `make perf`).
+addopts = "-q -m 'not perf'"
+markers = [
+    "perf: performance / concurrency / caching tier (deselected by default)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     # db.models.TestCase is the spec-mandated name for a real domain table, not a

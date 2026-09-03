@@ -26,9 +26,14 @@ def get_engine() -> Engine:
     settings = get_settings()
     url = settings.database_url
     connect_args: dict = {}
+    kwargs: dict = {"future": True, "pool_pre_ping": settings.db_pool_pre_ping}
     if url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
-    engine = create_engine(url, future=True, connect_args=connect_args)
+    else:
+        # spec section 18: bounded connection pool for the API + worker processes
+        kwargs["pool_size"] = settings.db_pool_size
+        kwargs["max_overflow"] = settings.db_max_overflow
+    engine = create_engine(url, connect_args=connect_args, **kwargs)
 
     if url.startswith("sqlite"):
 

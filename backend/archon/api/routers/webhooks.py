@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from archon.analysis.incremental.scope import resolve_changed_components
-from archon.api.deps import get_session
+from archon.api.deps import get_session, rate_limit_webhook
 from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.ids import new_id
@@ -98,7 +98,11 @@ def _best_effort_component_ids(session: Session, repo: Repository, changed: list
     return resolve_changed_components(session, snap, changed) if snap else []
 
 
-@router.post("/github", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/github",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_webhook)],
+)
 async def github_webhook(
     request: Request,
     response: Response,

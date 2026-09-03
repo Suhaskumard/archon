@@ -24,6 +24,8 @@ class ErrorCode(str, enum.Enum):
     VALIDATION = "VALIDATION"
     CONFLICT = "CONFLICT"
     UNAUTHORIZED = "UNAUTHORIZED"  # bad/missing credential or signature (spec section 51 webhook)
+    RATE_LIMITED = "RATE_LIMITED"  # per-client request budget exceeded (spec section 16)
+    REQUEST_TOO_LARGE = "REQUEST_TOO_LARGE"  # request body over the configured cap
     # repository ingestion (spec sections 21, 54)
     INVALID_REPOSITORY_URL = "INVALID_REPOSITORY_URL"
     REPOSITORY_NOT_FOUND = "REPOSITORY_NOT_FOUND"
@@ -58,6 +60,8 @@ _HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.VALIDATION: 422,
     ErrorCode.CONFLICT: 409,
     ErrorCode.UNAUTHORIZED: 401,
+    ErrorCode.RATE_LIMITED: 429,
+    ErrorCode.REQUEST_TOO_LARGE: 413,
     ErrorCode.INVALID_REPOSITORY_URL: 422,
     ErrorCode.REPOSITORY_NOT_FOUND: 404,
     ErrorCode.REPOSITORY_PRIVATE: 403,

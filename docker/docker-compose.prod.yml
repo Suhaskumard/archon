@@ -1,0 +1,90 @@
+# ARCHON production-leaning stack (spec section 18).
+#   docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Differences from docker-compose.yml (the dev stack):
+#   * secrets come from an --env-file, never baked into an image or this file
+#   * every service has a healthcheck, resource limits and restart: unless-stopped
+#   * the api runs migrations once on start behind an advisory lock (safe with N replicas)
+#   * /readyz gates readiness on "DB reachable AND schema at head"
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set in --env-file}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in --env-file}
+      POSTGRES_DB: ${POSTGRES_DB:?set in --env-file}
+    volumes:
+      - archon_db:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    env_file: [../.env.prod]
+    environment:
+      ARCHON_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ARCHON_LOG_JSON: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${ARCHON_API_PORT:-8000}:8000"
+    volumes:
+      - archon_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/readyz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+    # migration-on-start guard: db-upgrade takes a pg advisory lock (see migrate.upgrade),
+    # so running this on every replica is safe - only one actually migrates.
+    command: >
+      sh -c "python -m archon.cli.main db-upgrade &&
+             exec python -m archon.cli.main serve --host 0.0.0.0 --port 8000"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    env_file: [../.env.prod]
+    environment:
+      ARCHON_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ARCHON_LOG_JSON: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - archon_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    stop_grace_period: 120s   # let the worker finish its current stage on SIGTERM
+    deploy:
+      replicas: ${ARCHON_WORKER_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
+
+volumes:
+  archon_db:
+  archon_data:

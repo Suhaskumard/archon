@@ -13,8 +13,9 @@ import time
 from archon.config import get_settings
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.logging import get_logger
+from archon.core.observability import audit, metrics, record_run_outcome
 from archon.db.base import session_scope
-from archon.db.models import Job
+from archon.db.models import AnalysisRun, Job
 from archon.jobs.manager import JobManager
 from archon.pipeline.orchestrator import PipelineOrchestrator
 
@@ -29,7 +30,8 @@ class Worker:
 
     def request_stop(self, *_a) -> None:
         self._stop = True
-        log.info("worker stop requested")
+        audit("worker.draining")
+        log.info("worker stop requested - will finish the in-flight job, then exit")
 
     def run_forever(self, *, max_iterations: int | None = None) -> None:
         settings = get_settings()
@@ -74,12 +76,17 @@ class Worker:
                 return False
             job_id = job.id
             run_id = job.run_id
+            mode = session.get(AnalysisRun, run_id).mode.value
+        audit("run.claimed", run_id=run_id, job_id=job_id, mode=mode)
+        metrics.runs_active.inc()
 
         try:
             with session_scope() as session:
                 job = session.get(Job, job_id)
                 result = self.orchestrator.run(session, run_id, job=job)
                 self.jobs.finish(session, job, succeeded=True)
+            record_run_outcome("completed", mode)
+            audit("run.completed", run_id=run_id, job_id=job_id, mode=mode)
             log.info(
                 "job succeeded",
                 extra={"extra_fields": {"job_id": job_id, "snapshot_id": result.snapshot_id}},
@@ -90,9 +97,14 @@ class Worker:
                 job = session.get(Job, job_id)
                 if exc.code == ErrorCode.JOB_CANCELLED:
                     self.jobs.finish(session, job, succeeded=False, cancelled=True)
+                    outcome = "cancelled"
                 else:
                     payload = {**exc.to_dict()["error"], "retryable": retryable}
                     self.jobs.finish(session, job, succeeded=False, error=payload)
+                    outcome = "requeued" if retryable and job.state.value == "QUEUED" else "failed"
+            record_run_outcome(outcome, mode)
+            audit(f"run.{outcome}", run_id=run_id, job_id=job_id, mode=mode,
+                  code=exc.code.value, message=exc.message)
             log.warning(
                 "job failed",
                 extra={
@@ -117,7 +129,11 @@ class Worker:
                         "retryable": False,
                     },
                 )
+            record_run_outcome("failed", mode)
+            audit("run.failed", run_id=run_id, job_id=job_id, mode=mode, code="INTERNAL")
             log.exception("job crashed", extra={"extra_fields": {"job_id": job_id}})
+        finally:
+            metrics.runs_active.dec()
         return True
 
 

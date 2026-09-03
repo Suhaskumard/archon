@@ -92,6 +92,29 @@ export const run = mk<Run>({
   evidence: [evidence()],
 });
 
+export const adminRuns = mk<import("../api").AdminRuns>({
+  total: 1,
+  runs: [
+    {
+      run_id: "run-1",
+      repository: "https://github.com/acme/widgets",
+      snapshot_id: "snap-1",
+      commit_sha: "a".repeat(40),
+      mode: "ANALYSIS_ONLY",
+      state: "COMPLETED",
+      current_stage: null,
+      last_completed_stage: "ANALYZING_TESTS",
+      trigger: "api",
+      started_at: "2026-01-01T00:00:00Z",
+      ended_at: "2026-01-01T00:02:00Z",
+      duration_seconds: 120,
+      progress_pct: 100,
+      error: null,
+      ai_evidence_count: 0,
+    },
+  ],
+});
+
 export const runTriggeredByPush = (over: Partial<Run> = {}): Run =>
   run({
     mode: "INCREMENTAL",

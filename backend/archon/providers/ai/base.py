@@ -80,11 +80,20 @@ class AIProvider(abc.ABC):
     def complete_structured(
         self, operation: str, schema: type[T], context: dict | None = None
     ) -> T:
+        from archon.core.observability import record_ai_call
+
         context = context or {}
-        raw = self._generate(operation, schema, context)
+        try:
+            raw = self._generate(operation, schema, context)
+        except Exception:
+            if self.name != "mock":
+                record_ai_call(self.name, operation, outcome="error")
+            raise
         try:
             result = schema.model_validate(raw)
         except ValidationError as exc:
+            if self.name != "mock":
+                record_ai_call(self.name, operation, outcome="invalid")
             raise AIOutputError(
                 f"AI output for {operation!r} failed schema validation",
                 operation=operation, errors=exc.errors(include_url=False)[:5],
@@ -94,16 +103,22 @@ class AIProvider(abc.ABC):
             result = self._validate_evidence(operation, result, context)
         confidence = getattr(result, "confidence", None)
         if self.name != "mock":
+            in_tok, out_tok = getattr(self, "_last_usage", (None, None))
+            latency_ms = int(getattr(self, "_last_latency_ms", 0))
             _AI_CALL_LOG.append(
                 AICallRecord(
                     operation=operation,
                     provider=self.name,
                     model=getattr(self, "_model", self.name),
-                    input_tokens=getattr(self, "_last_usage", (None, None))[0],
-                    output_tokens=getattr(self, "_last_usage", (None, None))[1],
-                    latency_ms=int(getattr(self, "_last_latency_ms", 0)),
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
+                    latency_ms=latency_ms,
                     confidence=getattr(confidence, "value", None),
                 )
+            )
+            record_ai_call(
+                self.name, operation, outcome="ok", latency_s=latency_ms / 1000 or None,
+                input_tokens=in_tok, output_tokens=out_tok,
             )
         log.info(
             "ai op",

@@ -1,15 +1,23 @@
 # ARCHON API image
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 archon
 
 WORKDIR /app
 COPY backend/ /app/backend/
 RUN pip install --no-cache-dir -e "/app/backend[postgres]"
 
 ENV ARCHON_DATA_ROOT=/data
+RUN mkdir -p /data && chown -R archon:archon /data /app
+USER archon
+
 VOLUME ["/data"]
 EXPOSE 8000
+
+# Liveness: the process is up and serving. Readiness (DB + migrations) is /readyz.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:8000/healthz || exit 1
 
 CMD ["python", "-m", "archon.cli.main", "serve", "--host", "0.0.0.0", "--port", "8000"]

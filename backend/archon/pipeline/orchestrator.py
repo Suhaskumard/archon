@@ -33,6 +33,7 @@ Implemented stages:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -59,6 +60,7 @@ from archon.config import get_settings
 from archon.core.artifacts import read_text
 from archon.core.errors import ArchonError, ErrorCode, Recoverability
 from archon.core.logging import get_logger
+from archon.core.observability import audit, observe_stage
 from archon.db.models import (
     AnalysisArtifact,
     AnalysisRun,
@@ -200,6 +202,7 @@ class PipelineOrchestrator:
         plan = _STAGE_PLANS.get(run.mode, _STAGE_PLANS[RunMode.INGEST_ONLY])
         sm = RunStateMachine(run.state, run.current_stage)
         drain_ai_calls()  # discard any stragglers from a previous run in this process
+        deadline = time.monotonic() + get_settings().limits.max_analysis_duration_seconds
         completed: list[str] = []
         clone_result = None
         snapshot: RepositorySnapshot | None = None
@@ -227,10 +230,23 @@ class PipelineOrchestrator:
 
         for stage in plan:
             self._check_cancel(session, job)
+            if time.monotonic() > deadline:
+                raise ArchonError(
+                    ErrorCode.TIMEOUT,
+                    "analysis exceeded max_analysis_duration_seconds",
+                    context={
+                        "limit_seconds": get_settings().limits.max_analysis_duration_seconds,
+                        "stopped_before_stage": stage.value,
+                    },
+                    recoverability=Recoverability.NON_RECOVERABLE,
+                    suggested_action="Raise ARCHON_LIMIT_MAX_ANALYSIS_DURATION_SECONDS or analyse a smaller repo.",
+                )
             sm.enter_stage(stage)
             run.current_stage = stage
             session.flush()
             self._clear_stage(session, run_id, stage)
+            audit("stage.enter", run_id=run_id, stage=stage.value, mode=run.mode.value)
+            _stage_t0 = time.monotonic()
 
             if stage is Stage.INGESTING:
                 clone_result = self._ingest(session, run, repository)
@@ -333,6 +349,7 @@ class PipelineOrchestrator:
                     recoverability=Recoverability.NON_RECOVERABLE,
                 )
 
+            observe_stage(stage.value, run.mode.value, time.monotonic() - _stage_t0)
             run.last_completed_stage = stage
             run.progress_pct = 100.0 * (len(completed) + 1) / len(plan)
             completed.append(stage.value)
@@ -468,6 +485,27 @@ class PipelineOrchestrator:
             detail="; ".join(assessment.reasons) or "meets all SUPPORTED criteria",
             produced_by="snapshot.v1", confidence=1.0,
         )
+        # spec section 16-17: a mixed-language repo is analysed for its Python and the rest
+        # is *summarised*, never silently ignored.
+        non_py = assessment.non_python_languages
+        if non_py:
+            listed = ", ".join(f"{lang} ({n})" for lang, n in non_py.items())
+            self._add_evidence(
+                session, run, Stage.SNAPSHOTTING, Classification.FACT,
+                f"NON_PYTHON_SUMMARY: {assessment.non_python_file_count} non-Python code "
+                f"file(s) across {len(non_py)} language(s) are summarised, not analysed",
+                detail=f"languages: {listed}. Python analysis covers "
+                       f"{assessment.python_file_count}/{assessment.total_code_file_count} code files.",
+                produced_by="snapshot.v1", confidence=1.0,
+                refs={"language_breakdown": assessment.language_breakdown},
+            )
+        if not assessment.has_git_history:
+            self._add_evidence(
+                session, run, Stage.SNAPSHOTTING, Classification.INFERENCE,
+                "Shallow or single-commit history; archaeology and churn signals are degraded",
+                detail=f"commit_count={clone_result.commit_count}",
+                produced_by="snapshot.v1", confidence=1.0,
+            )
         return snapshot
 
     def _source(

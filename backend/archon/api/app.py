@@ -7,7 +7,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from archon import __version__
+from archon.api.middleware import OpsMiddleware
 from archon.api.routers import (
+    admin,
     archaeology,
     architecture,
     comparison,
@@ -39,6 +41,8 @@ def create_app() -> FastAPI:
         version=__version__,
         description="AI Software Archaeologist & Self-Healing Legacy Code Platform",
     )
+    # Raw ASGI middleware (not BaseHTTPMiddleware): request-size cap + http_requests_total.
+    app.add_middleware(OpsMiddleware)
 
     @app.exception_handler(ArchonError)
     async def _archon_error(_request: Request, exc: ArchonError) -> JSONResponse:
@@ -94,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(modernization.router)
     app.include_router(reporting.router)
     app.include_router(webhooks.router)
+    app.include_router(admin.router)
     return app
 
 

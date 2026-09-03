@@ -41,6 +41,7 @@ export function makeApi(overrides: Partial<Api> = {}): Api {
     createComparison: vi.fn().mockResolvedValue(fx.comparison()),
     getComparison: vi.fn().mockResolvedValue(fx.comparison()),
     getModernization: vi.fn().mockResolvedValue([fx.modernization()]),
+    getAdminRuns: vi.fn().mockResolvedValue(fx.adminRuns()),
     downloadReport: vi.fn().mockResolvedValue(undefined),
   };
   return Object.assign(base, overrides);

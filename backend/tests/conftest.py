@@ -35,12 +35,17 @@ def _isolated_env(tmp_path, monkeypatch):
     db_base.reset_engine_cache()
     config.get_settings().ensure_dirs()
 
+    from archon.api.deps import reset_rate_limiters
+    from archon.core.observability import reset_metrics
     from archon.db.migrate import upgrade
 
+    reset_metrics()
+    reset_rate_limiters()
     upgrade()
     yield
     db_base.reset_engine_cache()
     config.reset_settings_cache()
+    reset_rate_limiters()
 
 
 @pytest.fixture
@@ -57,6 +62,13 @@ def scoring_repo(tmp_path_factory) -> Path:
 
     dest = tmp_path_factory.mktemp("scoring_fixture_repo")
     return build_scoring_repo(dest)
+
+
+@pytest.fixture
+def polyglot_repo(tmp_path_factory) -> Path:
+    from tests.fixtures.build_polyglot_repo import build_polyglot_repo
+
+    return build_polyglot_repo(tmp_path_factory.mktemp("polyglot_fixture_repo"))
 
 
 @pytest.fixture
